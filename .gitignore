@@ -1,0 +1,11 @@
+cat .gitignore
+```
+
+It should contain at minimum:
+```
+.env
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+logs/
