@@ -6,10 +6,23 @@ from config import SUPABASE_URL, SUPABASE_ANON_KEY
 # ─────────────────────────────────────────
 # CLIENT
 # ─────────────────────────────────────────
+_supabase_client = None
+
 def get_client() -> Client:
     return create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-supabase = get_client()
+def get_supabase() -> Client:
+    global _supabase_client
+    if _supabase_client is None:
+        _supabase_client = get_client()
+    return _supabase_client
+
+# Use property to make 'supabase' lazy
+class _LazyClient:
+    def __getattr__(self, name):
+        return getattr(get_supabase(), name)
+
+supabase = _LazyClient()
 
 # ─────────────────────────────────────────
 # LISTINGS
