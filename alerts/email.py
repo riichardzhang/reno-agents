@@ -3,9 +3,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+import resend
 from datetime import datetime
 from config import ALERTS, FEASIBILITY
 from db.client import mark_listing_alerted
@@ -247,11 +245,10 @@ def build_email_html(listing: dict, feasibility: dict, vision: dict = None, text
 # SEND EMAIL
 # ─────────────────────────────────────────
 def send_alert(listing: dict, feasibility: dict, vision: dict = None, text_classification: dict = None) -> bool:
-    """
-    Send a formatted HTML email alert for a listing.
-    Returns True if sent successfully.
-    """
+    """Send a formatted HTML email alert for a listing via Resend."""
     try:
+        resend.api_key = os.getenv("RESEND_API_KEY")
+
         verdict = feasibility.get("verdict", "WATCH")
         subject = (
             f"{verdict} 🏠 {listing.get('address','Unknown')} — "
@@ -260,18 +257,14 @@ def send_alert(listing: dict, feasibility: dict, vision: dict = None, text_class
             f"Margin {feasibility.get('margin_at_list',0)*100:.1f}%"
         )
 
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"]    = ALERTS["alert_from"]
-        msg["To"]      = ALERTS["alert_to"]
-
         html_content = build_email_html(listing, feasibility, vision, text_classification)
-        msg.attach(MIMEText(html_content, "html"))
 
-        with smtplib.SMTP(ALERTS["smtp_host"], ALERTS["smtp_port"]) as server:
-            server.starttls()
-            server.login(ALERTS["alert_from"], os.getenv("ALERT_EMAIL_PASSWORD"))
-            server.sendmail(ALERTS["alert_from"], ALERTS["alert_to"], msg.as_string())
+        resend.Emails.send({
+            "from":    "onboarding@resend.dev",
+            "to":      "richard.zhang37@gmail.com",
+            "subject": subject,
+            "html":    html_content,
+        })
 
         mark_listing_alerted(listing["id"])
         return True
@@ -285,46 +278,38 @@ def send_alert(listing: dict, feasibility: dict, vision: dict = None, text_class
 # QUICK TEST
 # ─────────────────────────────────────────
 if __name__ == "__main__":
-    print("Testing email alert...\n")
+    print("Testing Resend email alert...\n")
 
     from db.client import supabase
     result = supabase.table("listings") \
         .select("*") \
-        .eq("domain_id", "test-123") \
-        .single() \
+        .eq("status", "active") \
+        .limit(1) \
         .execute()
 
     if not result.data:
-        print("✗ Test listing not found")
+        print("✗ No listings found in DB")
         sys.exit(1)
 
-    listing = result.data
+    listing = result.data[0]
     print(f"✓ Found listing: {listing['address']}")
 
     mock_feasibility = {
-        "listed_price":     450000,
-        "arv":              630000,
-        "arv_confidence":   "very low",
-        "arv_method":       "fallback_uplift",
-        "reno_cost":        65000,
-        "reno_itemised": {
-            "kitchen":      {"score": 2, "tier": "high",               "cost": 30000},
-            "bathroom":     {"score": 3, "tier": "high",               "cost": 22000},
-            "floors":       {"score": None, "tier": "medium (assumed)", "cost": 6000},
-            "paint":        {"score": None, "tier": "medium (assumed)", "cost": 4000},
-            "landscaping":  {"score": None, "tier": "medium (assumed)", "cost": 3000},
-        },
-        "buying_costs":     20000,
-        "holding_costs":    11250,
-        "selling_costs":    3000,
-        "profit_target":    94500,
-        "max_offer":        436250,
-        "margin_at_list":   0.128,
-        "verdict":          "WATCH",
+        "verdict":        "WATCH",
+        "arv":            630000,
+        "arv_confidence": "medium",
+        "arv_method":     "suburb_gap",
+        "reno_cost":      50000,
+        "buying_costs":   20000,
+        "holding_costs":  11250,
+        "selling_costs":  17175,
+        "profit_target":  94500,
+        "max_offer":      436250,
+        "margin_at_list": 0.128,
         "scenarios": {
-            "best":  {"arv": 693000, "reno_cost": 58500, "margin": 0.247},
-            "base":  {"arv": 630000, "reno_cost": 65000, "margin": 0.128},
-            "worst": {"arv": 567000, "reno_cost": 78000, "margin": -0.066},
+            "best":  {"arv": 693000, "reno_cost": 40000, "margin": 0.247},
+            "base":  {"arv": 630000, "reno_cost": 50000, "margin": 0.128},
+            "worst": {"arv": 567000, "reno_cost": 65000, "margin": -0.066},
         }
     }
 
@@ -336,17 +321,15 @@ if __name__ == "__main__":
     }
 
     mock_text = {
-        "classification":   "unrenovated",
-        "confidence":       0.85,
-        "signals":          ["original condition", "period features", "deceased estate"]
+        "classification": "unrenovated",
+        "confidence":     0.85,
+        "signals":        ["original condition", "period features", "deceased estate"]
     }
 
-    print("Sending test alert email...")
+    print("Sending test alert email to richard.zhang37@gmail.com...")
     success = send_alert(listing, mock_feasibility, mock_vision, mock_text)
 
     if success:
         print("✓ Check your inbox!")
     else:
-        print("✗ Email failed — check your ALERT_EMAIL and ALERT_EMAIL_PASSWORD in .env")
-        print("\nNote: For Gmail you need an App Password, not your regular password.")
-        print("Go to: Google Account → Security → 2-Step Verification → App Passwords")
+        print("✗ Email failed — check your RESEND_API_KEY in .env")
