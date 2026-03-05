@@ -84,8 +84,8 @@ def build_email_html(listing: dict, feasibility: dict, vision: dict = None, text
     if text_classification:
         text_note = f"""
         <p style='color:#666;font-size:13px;margin:4px 0;'>
-            📝 Description analysis: <strong>{text_classification.get('classification','unknown').title()}</strong>
-            ({text_classification.get('confidence',0)*100:.0f}% confidence)
+            📝 Description analysis: <strong>{(text_classification.get('classification') or 'unknown').title()}</strong>
+            ({text_classification.get('confidence', 0)*100:.0f}% confidence)
             — {', '.join(text_classification.get('signals', [])[:4])}
         </p>
         """
@@ -142,11 +142,11 @@ def build_email_html(listing: dict, feasibility: dict, vision: dict = None, text
                 {text_note}
                 <p style='color:#666;font-size:13px;margin:4px 0;'>
                     🏗 Renovation classification:
-                    <strong>{listing.get('classification','unknown').title()}</strong>
+                    <strong>{(listing.get('classification') or 'unknown').title()}</strong>
                     (avg score {listing.get('renovation_score','—')}/10)
                 </p>
                 <p style='color:#666;font-size:13px;margin:4px 0;'>
-                    ARV confidence: <strong>{feasibility.get('arv_confidence','unknown').title()}</strong>
+                    ARV confidence: <strong>{(feasibility.get('arv_confidence') or 'unknown').title()}</strong>
                     (method: {feasibility.get('arv_method','unknown')})
                 </p>
             </div>
@@ -273,7 +273,6 @@ def send_alert(listing: dict, feasibility: dict, vision: dict = None, text_class
             server.login(ALERTS["alert_from"], os.getenv("ALERT_EMAIL_PASSWORD"))
             server.sendmail(ALERTS["alert_from"], ALERTS["alert_to"], msg.as_string())
 
-        print(f"  ✓ Alert sent: {subject}")
         mark_listing_alerted(listing["id"])
         return True
 
@@ -288,7 +287,6 @@ def send_alert(listing: dict, feasibility: dict, vision: dict = None, text_class
 if __name__ == "__main__":
     print("Testing email alert...\n")
 
-    # Pull test listing from database
     from db.client import supabase
     result = supabase.table("listings") \
         .select("*") \
@@ -303,7 +301,6 @@ if __name__ == "__main__":
     listing = result.data
     print(f"✓ Found listing: {listing['address']}")
 
-    # Mock feasibility result
     mock_feasibility = {
         "listed_price":     450000,
         "arv":              630000,
@@ -311,8 +308,8 @@ if __name__ == "__main__":
         "arv_method":       "fallback_uplift",
         "reno_cost":        65000,
         "reno_itemised": {
-            "kitchen":      {"score": 2, "tier": "high",             "cost": 30000},
-            "bathroom":     {"score": 3, "tier": "high",             "cost": 22000},
+            "kitchen":      {"score": 2, "tier": "high",               "cost": 30000},
+            "bathroom":     {"score": 3, "tier": "high",               "cost": 22000},
             "floors":       {"score": None, "tier": "medium (assumed)", "cost": 6000},
             "paint":        {"score": None, "tier": "medium (assumed)", "cost": 4000},
             "landscaping":  {"score": None, "tier": "medium (assumed)", "cost": 3000},

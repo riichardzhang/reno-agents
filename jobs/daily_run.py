@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import json
 import time
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sources.domain import fetch_new_listings
@@ -41,13 +41,8 @@ DRY_RUN = False             # Set True to skip emails and DB logging
 
 # ─────────────────────────────────────────
 # SUBURB GAP CACHE
-# Load all suburb gaps once at the start of each run
 # ─────────────────────────────────────────
 def load_suburb_gaps() -> dict:
-    """
-    Load all suburb gap data from Supabase into a dict keyed by suburb name.
-    Returns: {"Devonport": {...}, "Launceston": {...}, ...}
-    """
     try:
         result = supabase.table("suburb_gaps").select("*").execute()
         gaps = {}
@@ -77,7 +72,6 @@ def refresh_sold_data():
 
 
 def get_gap_for_suburb(suburb: str, gaps: dict) -> Optional[dict]:
-    """Look up suburb gap, trying title case and stripped variants."""
     return gaps.get(suburb.strip().title())
 
 
@@ -85,10 +79,6 @@ def get_gap_for_suburb(suburb: str, gaps: dict) -> Optional[dict]:
 # PIPELINE: PROCESS A SINGLE LISTING
 # ─────────────────────────────────────────
 def process_listing(listing: dict, suburb_gaps: dict) -> Optional[dict]:
-    """
-    Run the full classification + analysis pipeline on one listing.
-    Returns analysis dict if alert-worthy, None otherwise.
-    """
     listing_id = listing.get("id")
     address = listing.get("address", "Unknown")
     suburb = listing.get("suburb", "")
@@ -97,7 +87,7 @@ def process_listing(listing: dict, suburb_gaps: dict) -> Optional[dict]:
     print(f"\n  ── {address} ──")
     print(f"     ${price:,}  |  {suburb}")
 
-    # ── Step 1: Check suburb gap before doing any expensive work ──
+    # ── Step 1: Check suburb gap ──
     gap_data = get_gap_for_suburb(suburb, suburb_gaps)
     if not gap_data:
         print(f"     ⚠ No gap data for {suburb} — skipping")
@@ -116,8 +106,8 @@ def process_listing(listing: dict, suburb_gaps: dict) -> Optional[dict]:
         text_result = classify_listing_text(listing_id, description)
         listing["text_renovation_signals"] = {
             "classification": text_result.get("classification"),
-            "signals": text_result.get("signals", []),
-            "confidence": text_result.get("confidence", 0),
+            "signals":        text_result.get("signals", []),
+            "confidence":     text_result.get("confidence", 0),
         }
     except Exception as e:
         print(f"     ✗ Text classification error: {e}")
@@ -135,7 +125,7 @@ def process_listing(listing: dict, suburb_gaps: dict) -> Optional[dict]:
         print(f"     ✗ Photo processing error: {e}")
 
     # ── Step 4: Vision scoring ──
-    avg_reno_score = 2.5  # default if vision fails
+    avg_reno_score = 2.5
     try:
         if found_rooms:
             vision_result = score_listing_renovation(listing_id)
@@ -173,28 +163,27 @@ def process_listing(listing: dict, suburb_gaps: dict) -> Optional[dict]:
 # LOG RUN TO SUPABASE
 # ─────────────────────────────────────────
 def log_run(stats: dict):
-    """Store run summary in a pipeline_runs table (creates silently if missing)."""
     if DRY_RUN:
         return
     try:
         supabase.table("pipeline_runs").insert({
-            "run_at":           datetime.utcnow().isoformat(),
-            "listings_fetched": stats["fetched"],
+            "run_at":            datetime.now(timezone.utc).isoformat(),
+            "listings_fetched":  stats["fetched"],
             "listings_analysed": stats["analysed"],
-            "go_count":         stats["go"],
-            "watch_count":      stats["watch"],
-            "pass_count":       stats["pass"],
-            "errors":           stats["errors"],
+            "go_count":          stats["go"],
+            "watch_count":       stats["watch"],
+            "pass_count":        stats["pass"],
+            "errors":            stats["errors"],
         }).execute()
     except Exception:
-        pass  # Table may not exist yet — non-fatal
+        pass
 
 
 # ─────────────────────────────────────────
 # MAIN RUN
 # ─────────────────────────────────────────
 def run():
-    start = datetime.utcnow()
+    start = datetime.now(timezone.utc)
     print(f"\n{'═'*60}")
     print(f"  DAILY PIPELINE RUN — {start.strftime('%Y-%m-%d %H:%M UTC')}")
     print(f"{'═'*60}\n")
@@ -255,7 +244,6 @@ def run():
             print(f"\n     ✗ Unhandled error: {e}")
             traceback.print_exc()
 
-        # Polite delay between listings
         time.sleep(1)
 
     # ── 4. Send alerts ──
@@ -296,7 +284,7 @@ def run():
         print(f"  → No alert-worthy listings today")
 
     # ── 5. Summary ──
-    duration = (datetime.utcnow() - start).seconds
+    duration = (datetime.now(timezone.utc) - start).seconds
     print(f"\n{'═'*60}")
     print(f"  RUN COMPLETE — {duration}s")
     print(f"{'═'*60}")
