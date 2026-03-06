@@ -96,7 +96,8 @@ def build_listing_card_html(listing: dict, feasibility: dict, vision: dict = Non
     margin_color = "#16A34A" if margin_pct >= 10 else "#D97706" if margin_pct >= 0 else "#DC2626"
 
     max_offer_price = feasibility.get('max_offer_price', 0)
-    max_bid = feasibility.get('max_bid_above_asking', 0)
+    asking_price = listing.get('price', 0)
+    max_bid = max_offer_price - asking_price  # always derived from the same source, never Claude's value
     max_bid_color = "#16A34A" if max_bid >= 0 else "#DC2626"
     delta_str = f"(+${max_bid:,} above asking)" if max_bid >= 0 else f"(-${abs(max_bid):,} below asking)"
 
@@ -302,7 +303,9 @@ def send_digest_email(alerts: list) -> bool:
         go_count    = sum(1 for a in alerts if a["feasibility"].get("verdict") == "GO")
         watch_count = sum(1 for a in alerts if a["feasibility"].get("verdict") == "WATCH")
         summary = f"{go_count} GO" + (f", {watch_count} WATCH" if watch_count else "")
-        date_str = datetime.now().strftime("%A %d %B")
+        from zoneinfo import ZoneInfo
+        sydney_now = datetime.now(ZoneInfo("Australia/Sydney"))
+        date_str = sydney_now.strftime("%A %d %B")
         subject = f"🏠 Property Pipeline — {date_str} — {len(alerts)} deal{'s' if len(alerts) != 1 else ''} ({summary})"
 
         html_content = build_digest_email_html(alerts)
