@@ -115,20 +115,26 @@ def process_listing_photos(listing_id: str, photo_urls: list) -> dict:
     # Limit to first N photos
     urls_to_process = photo_urls[:PHOTOS["max_photos_to_download"]]
 
+    # Check what rooms are already stored in DB for this listing
+    existing_photos = get_photos_for_listing(listing_id)
+    already_stored = {p["room_type"] for p in existing_photos if p.get("room_type") in PHOTOS["target_rooms"]}
+    if already_stored:
+        print(f"  → Rooms already in DB: {', '.join(already_stored)} — skipping download")
+
     found_rooms = {}         # room_type -> {url, base64}
     needs_claude_id = []     # (index, url, base64) that need Claude to identify
 
     print(f"  → Processing {len(urls_to_process)} photos...")
 
     for i, url in enumerate(urls_to_process):
-        # Skip if we already have both target rooms
-        if all(r in found_rooms for r in PHOTOS["target_rooms"]):
+        # Skip if we already have both target rooms (in memory or DB)
+        if all(r in found_rooms or r in already_stored for r in PHOTOS["target_rooms"]):
             break
 
         # Try cheap identification first
         room_type = identify_room_from_url(url, i)
 
-        if room_type in PHOTOS["target_rooms"] and room_type not in found_rooms:
+        if room_type in PHOTOS["target_rooms"] and room_type not in found_rooms and room_type not in already_stored:
             # Download this photo
             photo_b64 = download_photo(url)
             if photo_b64:
@@ -152,7 +158,7 @@ def process_listing_photos(listing_id: str, photo_urls: list) -> dict:
         time.sleep(0.1)  # small delay between downloads
 
     # Use Claude to identify remaining photos if we still need target rooms
-    missing_rooms = [r for r in PHOTOS["target_rooms"] if r not in found_rooms]
+    missing_rooms = [r for r in PHOTOS["target_rooms"] if r not in found_rooms and r not in already_stored]
 
     if missing_rooms and needs_claude_id:
         print(f"  → Using Claude to identify {len(needs_claude_id)} unidentified photos...")

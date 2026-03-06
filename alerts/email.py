@@ -266,7 +266,7 @@ def build_digest_email_html(alerts: list) -> str:
         <div style='background:#1a1a1a;color:white;padding:20px 24px;border-radius:12px 12px 0 0;margin-bottom:8px;'>
             <h1 style='margin:0;font-size:20px;'>🏠 Property Pipeline — Daily Digest</h1>
             <p style='margin:4px 0 0;color:#999;font-size:13px;'>
-                {datetime.now().strftime("%A %d %B %Y, %I:%M %p")}
+                {datetime.now(__import__('zoneinfo').ZoneInfo('Australia/Sydney')).strftime("%A %d %B %Y, %I:%M %p AEDT")}
                 &nbsp;|&nbsp;
                 {len(alerts)} deal{'s' if len(alerts) != 1 else ''} found: {summary}
             </p>

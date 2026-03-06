@@ -144,6 +144,14 @@ def score_listing_renovation(listing_id: str) -> dict:
             print(f"  ✗ No base64 data for {room_type} photo")
             continue
 
+        # Use cached score if already scored — avoids LLM variance between runs
+        if photo.get("renovation_score") is not None:
+            cached_score = int(photo["renovation_score"])
+            room_scores[room_type] = cached_score
+            room_details[room_type] = {"score": cached_score, "condition": "cached", "key_observations": [], "red_flags": []}
+            print(f"  → {room_type.capitalize()}: using cached score {cached_score}/10")
+            continue
+
         print(f"  → Scoring {room_type}...")
         result = score_room(photo_b64, room_type)
 
