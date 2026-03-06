@@ -63,6 +63,7 @@ def build_listing_card_html(listing: dict, feasibility: dict, vision: dict = Non
         scenario_emojis = {"best": "📈", "base": "📊", "worst": "📉"}
         for name, s in feasibility["scenarios"].items():
             margin = s.get("margin", 0) * 100
+            profit = s.get("profit", 0)
             margin_color = "#16A34A" if margin >= 10 else "#D97706" if margin >= 0 else "#DC2626"
             scenario_rows += f"""
             <tr>
@@ -71,6 +72,9 @@ def build_listing_card_html(listing: dict, feasibility: dict, vision: dict = Non
                 </td>
                 <td style='padding:6px 12px;border-bottom:1px solid #f0f0f0;text-align:right;'>${s.get('arv',0):,}</td>
                 <td style='padding:6px 12px;border-bottom:1px solid #f0f0f0;text-align:right;'>${s.get('reno_cost',0):,}</td>
+                <td style='padding:6px 12px;border-bottom:1px solid #f0f0f0;text-align:right;color:{margin_color};font-weight:bold;'>
+                    ${profit:,}
+                </td>
                 <td style='padding:6px 12px;border-bottom:1px solid #f0f0f0;text-align:right;color:{margin_color};font-weight:bold;'>
                     {margin:.1f}%
                 </td>
@@ -195,7 +199,7 @@ def build_listing_card_html(listing: dict, feasibility: dict, vision: dict = Non
                         <td style='padding:4px 12px;text-align:right;'>${feasibility.get('selling_costs',0):,}</td>
                     </tr>
                     <tr>
-                        <td style='padding:4px 12px;color:#666;'>Total capital deployed</td>
+                        <td style='padding:4px 12px;color:#666;'>Cash equity injected (20% deposit + costs)</td>
                         <td style='padding:4px 12px;text-align:right;'>${feasibility.get('capital_injected',0):,}</td>
                     </tr>
                     <tr>
@@ -222,7 +226,8 @@ def build_listing_card_html(listing: dict, feasibility: dict, vision: dict = Non
                             <th style='padding:8px 12px;text-align:left;font-weight:600;'>Scenario</th>
                             <th style='padding:8px 12px;text-align:right;font-weight:600;'>ARV</th>
                             <th style='padding:8px 12px;text-align:right;font-weight:600;'>Reno</th>
-                            <th style='padding:8px 12px;text-align:right;font-weight:600;'>Margin</th>
+                            <th style='padding:8px 12px;text-align:right;font-weight:600;'>Profit $</th>
+                            <th style='padding:8px 12px;text-align:right;font-weight:600;'>Margin %</th>
                         </tr>
                     </thead>
                     <tbody>

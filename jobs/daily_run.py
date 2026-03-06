@@ -271,6 +271,7 @@ def run():
                     "margin_at_list":       analysis["feasibility"].get("margin_on_capital_pct", 0) / 100,
                     "scenarios": {
                         k: {"arv": v.get("arv", 0), "reno_cost": v.get("reno_cost", 0),
+                            "profit": v.get("profit", 0),
                             "margin": v.get("margin_on_capital_pct", 0) / 100}
                         for k, v in analysis.get("scenarios", {}).items()
                     },
