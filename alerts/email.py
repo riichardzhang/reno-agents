@@ -9,10 +9,10 @@ from config import ALERTS, FEASIBILITY
 from db.client import mark_listing_alerted
 
 # ─────────────────────────────────────────
-# BUILD EMAIL HTML
+# BUILD LISTING CARD HTML (one property)
 # ─────────────────────────────────────────
-def build_email_html(listing: dict, feasibility: dict, vision: dict = None, text_classification: dict = None) -> str:
-    """Build a formatted HTML email for a listing alert."""
+def build_listing_card_html(listing: dict, feasibility: dict, vision: dict = None, text_classification: dict = None) -> str:
+    """Build HTML card for a single listing (no outer email structure)."""
 
     verdict = feasibility.get("verdict", "WATCH")
     verdict_color = {
@@ -63,7 +63,7 @@ def build_email_html(listing: dict, feasibility: dict, vision: dict = None, text
         scenario_emojis = {"best": "📈", "base": "📊", "worst": "📉"}
         for name, s in feasibility["scenarios"].items():
             margin = s.get("margin", 0) * 100
-            margin_color = "#16A34A" if margin >= 15 else "#D97706" if margin >= 0 else "#DC2626"
+            margin_color = "#16A34A" if margin >= 10 else "#D97706" if margin >= 0 else "#DC2626"
             scenario_rows += f"""
             <tr>
                 <td style='padding:6px 12px;border-bottom:1px solid #f0f0f0;text-transform:capitalize;'>
@@ -89,175 +89,216 @@ def build_email_html(listing: dict, feasibility: dict, vision: dict = None, text
         """
 
     margin_pct = feasibility.get('margin_at_list', 0) * 100
-    margin_color = "#16A34A" if margin_pct >= 15 else "#D97706" if margin_pct >= 0 else "#DC2626"
+    margin_color = "#16A34A" if margin_pct >= 10 else "#D97706" if margin_pct >= 0 else "#DC2626"
 
-    html = f"""
+    max_bid = feasibility.get('max_bid_above_asking', 0)
+    if max_bid >= 0:
+        max_bid_str = f"+${max_bid:,}"
+        max_bid_color = "#16A34A"
+    else:
+        max_bid_str = f"-${abs(max_bid):,}"
+        max_bid_color = "#DC2626"
+
+    return f"""
+        <!-- ── LISTING CARD ── -->
+        <div style='margin-bottom:40px;border:2px solid {verdict_color};border-radius:12px;overflow:hidden;'>
+
+            <!-- Verdict Banner -->
+            <div style='background:{verdict_color};color:white;padding:14px 24px;'>
+                <h2 style='margin:0;font-size:20px;'>{verdict_emoji} {verdict} — {listing.get('address','Unknown')}</h2>
+                <p style='margin:4px 0 0;font-size:13px;opacity:0.9;'>
+                    {listing.get('suburb','')}, {listing.get('state','')}
+                    &nbsp;|&nbsp;
+                    Margin on capital: <strong>{margin_pct:.1f}%</strong>
+                    &nbsp;|&nbsp;
+                    Target: {FEASIBILITY['profit_target']*100:.0f}%
+                </p>
+            </div>
+
+            <!-- Property Details -->
+            <div style='background:#f9f9f9;padding:20px 24px;border-bottom:1px solid #e5e5e5;'>
+                <div style='display:flex;gap:24px;flex-wrap:wrap;'>
+                    <div>
+                        <div style='font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;'>Listed Price</div>
+                        <div style='font-size:22px;font-weight:bold;'>${listing.get('price',0):,}</div>
+                    </div>
+                    <div>
+                        <div style='font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;'>Max Bid Above Asking</div>
+                        <div style='font-size:22px;font-weight:bold;color:{max_bid_color};'>{max_bid_str}</div>
+                    </div>
+                    <div>
+                        <div style='font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;'>ARV Estimate</div>
+                        <div style='font-size:22px;font-weight:bold;'>${feasibility.get('arv',0):,}</div>
+                    </div>
+                    <div>
+                        <div style='font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;'>Beds / Baths</div>
+                        <div style='font-size:22px;font-weight:bold;'>{listing.get('bedrooms','—')} / {listing.get('bathrooms','—')}</div>
+                    </div>
+                </div>
+
+                <div style='margin-top:12px;'>
+                    {text_note}
+                    <p style='color:#666;font-size:13px;margin:4px 0;'>
+                        🏗 Renovation classification:
+                        <strong>{(listing.get('classification') or 'unknown').title()}</strong>
+                        (avg score {listing.get('renovation_score','—')}/10)
+                    </p>
+                    <p style='color:#666;font-size:13px;margin:4px 0;'>
+                        ARV confidence: <strong>{(feasibility.get('arv_confidence') or 'unknown').title()}</strong>
+                        (method: {feasibility.get('arv_method','unknown')})
+                    </p>
+                </div>
+
+                <a href='{listing.get('listing_url','#')}'
+                   style='display:inline-block;margin-top:16px;background:#1a1a1a;color:white;
+                          padding:10px 20px;border-radius:6px;text-decoration:none;font-size:14px;'>
+                    View Listing →
+                </a>
+            </div>
+
+            {red_flags_html}
+
+            <!-- Cost Breakdown -->
+            <div style='padding:20px 24px;border-bottom:1px solid #e5e5e5;'>
+                <h3 style='margin:0 0 12px;font-size:15px;text-transform:uppercase;letter-spacing:1px;color:#666;'>
+                    Cost Breakdown
+                </h3>
+                <table style='width:100%;border-collapse:collapse;font-size:14px;'>
+                    <thead>
+                        <tr style='background:#f5f5f5;'>
+                            <th style='padding:8px 12px;text-align:left;font-weight:600;'>Room</th>
+                            <th style='padding:8px 12px;text-align:center;font-weight:600;'>Score</th>
+                            <th style='padding:8px 12px;text-align:center;font-weight:600;'>Level</th>
+                            <th style='padding:8px 12px;text-align:right;font-weight:600;'>Cost</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {reno_rows}
+                        <tr style='background:#f5f5f5;font-weight:bold;'>
+                            <td colspan='3' style='padding:8px 12px;'>Total Renovation</td>
+                            <td style='padding:8px 12px;text-align:right;'>${feasibility.get('reno_cost',0):,}</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <table style='width:100%;border-collapse:collapse;font-size:14px;margin-top:12px;'>
+                    <tr>
+                        <td style='padding:4px 12px;color:#666;'>Buying costs (stamp duty + conveyancing)</td>
+                        <td style='padding:4px 12px;text-align:right;'>${feasibility.get('buying_costs',0):,}</td>
+                    </tr>
+                    <tr>
+                        <td style='padding:4px 12px;color:#666;'>Holding costs ({FEASIBILITY['holding_months']} months)</td>
+                        <td style='padding:4px 12px;text-align:right;'>${feasibility.get('holding_costs',0):,}</td>
+                    </tr>
+                    <tr>
+                        <td style='padding:4px 12px;color:#666;'>Selling costs (flat fee)</td>
+                        <td style='padding:4px 12px;text-align:right;'>${feasibility.get('selling_costs',0):,}</td>
+                    </tr>
+                    <tr>
+                        <td style='padding:4px 12px;color:#666;'>Capital injected (80% LVR)</td>
+                        <td style='padding:4px 12px;text-align:right;'>${feasibility.get('capital_injected',0):,}</td>
+                    </tr>
+                    <tr>
+                        <td style='padding:4px 12px;color:#666;'>Profit target (10% on capital)</td>
+                        <td style='padding:4px 12px;text-align:right;'>${feasibility.get('profit_target',0):,}</td>
+                    </tr>
+                    <tr style='font-weight:bold;border-top:2px solid #1a1a1a;'>
+                        <td style='padding:10px 12px;font-size:16px;'>MAX BID ABOVE ASKING</td>
+                        <td style='padding:10px 12px;text-align:right;font-size:16px;color:{max_bid_color};'>
+                            {max_bid_str}
+                        </td>
+                    </tr>
+                </table>
+            </div>
+
+            <!-- Scenarios -->
+            <div style='padding:20px 24px;'>
+                <h3 style='margin:0 0 12px;font-size:15px;text-transform:uppercase;letter-spacing:1px;color:#666;'>
+                    Scenario Modelling (margin on capital)
+                </h3>
+                <table style='width:100%;border-collapse:collapse;font-size:14px;'>
+                    <thead>
+                        <tr style='background:#f5f5f5;'>
+                            <th style='padding:8px 12px;text-align:left;font-weight:600;'>Scenario</th>
+                            <th style='padding:8px 12px;text-align:right;font-weight:600;'>ARV</th>
+                            <th style='padding:8px 12px;text-align:right;font-weight:600;'>Reno</th>
+                            <th style='padding:8px 12px;text-align:right;font-weight:600;'>Margin</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {scenario_rows}
+                    </tbody>
+                </table>
+            </div>
+
+        </div>
+    """
+
+
+# ─────────────────────────────────────────
+# BUILD DIGEST EMAIL HTML (all deals)
+# ─────────────────────────────────────────
+def build_digest_email_html(alerts: list) -> str:
+    """Build a single digest email containing all deal cards."""
+    go_count    = sum(1 for a in alerts if a["feasibility"].get("verdict") == "GO")
+    watch_count = sum(1 for a in alerts if a["feasibility"].get("verdict") == "WATCH")
+
+    summary = f"{go_count} GO" + (f", {watch_count} WATCH" if watch_count else "")
+
+    cards_html = "".join([
+        build_listing_card_html(a["listing"], a["feasibility"], a.get("vision"), a.get("text"))
+        for a in alerts
+    ])
+
+    return f"""
     <!DOCTYPE html>
     <html>
-    <body style='font-family:Arial,sans-serif;max-width:680px;margin:0 auto;padding:20px;color:#1a1a1a;'>
+    <body style='font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:20px;color:#1a1a1a;'>
 
         <!-- Header -->
-        <div style='background:#1a1a1a;color:white;padding:20px 24px;border-radius:12px 12px 0 0;'>
-            <h1 style='margin:0;font-size:20px;'>🏠 Property Pipeline Alert</h1>
-            <p style='margin:4px 0 0;color:#999;font-size:13px;'>{datetime.now().strftime("%A %d %B %Y, %I:%M %p")}</p>
-        </div>
-
-        <!-- Verdict Banner -->
-        <div style='background:{verdict_color};color:white;padding:16px 24px;'>
-            <h2 style='margin:0;font-size:24px;'>{verdict_emoji} {verdict}</h2>
-            <p style='margin:4px 0 0;font-size:14px;opacity:0.9;'>
-                Margin at list price: <strong>{margin_pct:.1f}%</strong>
+        <div style='background:#1a1a1a;color:white;padding:20px 24px;border-radius:12px 12px 0 0;margin-bottom:8px;'>
+            <h1 style='margin:0;font-size:20px;'>🏠 Property Pipeline — Daily Digest</h1>
+            <p style='margin:4px 0 0;color:#999;font-size:13px;'>
+                {datetime.now().strftime("%A %d %B %Y, %I:%M %p")}
                 &nbsp;|&nbsp;
-                Target: {FEASIBILITY['profit_target']*100:.0f}%
+                {len(alerts)} deal{'s' if len(alerts) != 1 else ''} found: {summary}
             </p>
         </div>
 
-        <!-- Property Details -->
-        <div style='background:#f9f9f9;padding:20px 24px;border:1px solid #e5e5e5;'>
-            <h2 style='margin:0 0 4px;font-size:18px;'>{listing.get('address','Unknown')}</h2>
-            <p style='margin:0;color:#666;'>{listing.get('suburb','')}, {listing.get('state','')}</p>
-
-            <div style='display:flex;gap:24px;margin-top:16px;flex-wrap:wrap;'>
-                <div>
-                    <div style='font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;'>Listed Price</div>
-                    <div style='font-size:22px;font-weight:bold;'>${listing.get('price',0):,}</div>
-                </div>
-                <div>
-                    <div style='font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;'>Max Offer</div>
-                    <div style='font-size:22px;font-weight:bold;color:{verdict_color};'>${feasibility.get('max_offer',0):,}</div>
-                </div>
-                <div>
-                    <div style='font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;'>ARV Estimate</div>
-                    <div style='font-size:22px;font-weight:bold;'>${feasibility.get('arv',0):,}</div>
-                </div>
-                <div>
-                    <div style='font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;'>Beds / Baths</div>
-                    <div style='font-size:22px;font-weight:bold;'>{listing.get('bedrooms','—')} / {listing.get('bathrooms','—')}</div>
-                </div>
-            </div>
-
-            <div style='margin-top:12px;'>
-                {text_note}
-                <p style='color:#666;font-size:13px;margin:4px 0;'>
-                    🏗 Renovation classification:
-                    <strong>{(listing.get('classification') or 'unknown').title()}</strong>
-                    (avg score {listing.get('renovation_score','—')}/10)
-                </p>
-                <p style='color:#666;font-size:13px;margin:4px 0;'>
-                    ARV confidence: <strong>{(feasibility.get('arv_confidence') or 'unknown').title()}</strong>
-                    (method: {feasibility.get('arv_method','unknown')})
-                </p>
-            </div>
-
-            <a href='{listing.get('listing_url','#')}'
-               style='display:inline-block;margin-top:16px;background:#1a1a1a;color:white;
-                      padding:10px 20px;border-radius:6px;text-decoration:none;font-size:14px;'>
-                View Listing →
-            </a>
-        </div>
-
-        {red_flags_html}
-
-        <!-- Cost Breakdown -->
-        <div style='padding:20px 24px;border:1px solid #e5e5e5;border-top:none;'>
-            <h3 style='margin:0 0 12px;font-size:15px;text-transform:uppercase;letter-spacing:1px;color:#666;'>
-                Cost Breakdown
-            </h3>
-            <table style='width:100%;border-collapse:collapse;font-size:14px;'>
-                <thead>
-                    <tr style='background:#f5f5f5;'>
-                        <th style='padding:8px 12px;text-align:left;font-weight:600;'>Room</th>
-                        <th style='padding:8px 12px;text-align:center;font-weight:600;'>Score</th>
-                        <th style='padding:8px 12px;text-align:center;font-weight:600;'>Level</th>
-                        <th style='padding:8px 12px;text-align:right;font-weight:600;'>Cost</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {reno_rows}
-                    <tr style='background:#f5f5f5;font-weight:bold;'>
-                        <td colspan='3' style='padding:8px 12px;'>Total Renovation</td>
-                        <td style='padding:8px 12px;text-align:right;'>${feasibility.get('reno_cost',0):,}</td>
-                    </tr>
-                </tbody>
-            </table>
-
-            <table style='width:100%;border-collapse:collapse;font-size:14px;margin-top:12px;'>
-                <tr>
-                    <td style='padding:4px 12px;color:#666;'>Buying costs (stamp duty + conveyancing)</td>
-                    <td style='padding:4px 12px;text-align:right;'>${feasibility.get('buying_costs',0):,}</td>
-                </tr>
-                <tr>
-                    <td style='padding:4px 12px;color:#666;'>Holding costs ({FEASIBILITY['holding_months']} months)</td>
-                    <td style='padding:4px 12px;text-align:right;'>${feasibility.get('holding_costs',0):,}</td>
-                </tr>
-                <tr>
-                    <td style='padding:4px 12px;color:#666;'>Selling costs (marketing)</td>
-                    <td style='padding:4px 12px;text-align:right;'>${feasibility.get('selling_costs',0):,}</td>
-                </tr>
-                <tr>
-                    <td style='padding:4px 12px;color:#666;'>Profit target (15% of ARV)</td>
-                    <td style='padding:4px 12px;text-align:right;'>${feasibility.get('profit_target',0):,}</td>
-                </tr>
-                <tr style='font-weight:bold;border-top:2px solid #1a1a1a;'>
-                    <td style='padding:10px 12px;font-size:16px;'>MAX OFFER PRICE</td>
-                    <td style='padding:10px 12px;text-align:right;font-size:16px;color:{verdict_color};'>
-                        ${feasibility.get('max_offer',0):,}
-                    </td>
-                </tr>
-            </table>
-        </div>
-
-        <!-- Scenarios -->
-        <div style='padding:20px 24px;border:1px solid #e5e5e5;border-top:none;'>
-            <h3 style='margin:0 0 12px;font-size:15px;text-transform:uppercase;letter-spacing:1px;color:#666;'>
-                Scenario Modelling
-            </h3>
-            <table style='width:100%;border-collapse:collapse;font-size:14px;'>
-                <thead>
-                    <tr style='background:#f5f5f5;'>
-                        <th style='padding:8px 12px;text-align:left;font-weight:600;'>Scenario</th>
-                        <th style='padding:8px 12px;text-align:right;font-weight:600;'>ARV</th>
-                        <th style='padding:8px 12px;text-align:right;font-weight:600;'>Reno</th>
-                        <th style='padding:8px 12px;text-align:right;font-weight:600;'>Margin</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {scenario_rows}
-                </tbody>
-            </table>
-        </div>
+        {cards_html}
 
         <!-- Footer -->
-        <div style='background:#f5f5f5;padding:16px 24px;border-radius:0 0 12px 12px;
-                    border:1px solid #e5e5e5;border-top:none;text-align:center;'>
+        <div style='background:#f5f5f5;padding:16px 24px;border-radius:12px;text-align:center;margin-top:8px;'>
             <p style='margin:0;color:#999;font-size:12px;'>
-                Property Pipeline · Auto-generated alert · {datetime.now().strftime("%d/%m/%Y")}
+                Property Pipeline · Auto-generated digest · {datetime.now().strftime("%d/%m/%Y")}
             </p>
         </div>
 
     </body>
     </html>
     """
-    return html
 
 
 # ─────────────────────────────────────────
-# SEND EMAIL
+# SEND DIGEST EMAIL (all deals, one email)
 # ─────────────────────────────────────────
-def send_alert(listing: dict, feasibility: dict, vision: dict = None, text_classification: dict = None) -> bool:
-    """Send a formatted HTML email alert for a listing via Resend."""
+def send_digest_email(alerts: list) -> bool:
+    """
+    Send a single digest email with all deals.
+    alerts: list of dicts with keys: listing, feasibility, vision, text
+    """
+    if not alerts:
+        return False
+
     try:
         resend.api_key = os.getenv("RESEND_API_KEY")
 
-        verdict = feasibility.get("verdict", "WATCH")
-        subject = (
-            f"{verdict} 🏠 {listing.get('address','Unknown')} — "
-            f"${listing.get('price',0):,} | "
-            f"Max offer ${feasibility.get('max_offer',0):,} | "
-            f"Margin {feasibility.get('margin_at_list',0)*100:.1f}%"
-        )
+        go_count    = sum(1 for a in alerts if a["feasibility"].get("verdict") == "GO")
+        watch_count = sum(1 for a in alerts if a["feasibility"].get("verdict") == "WATCH")
+        summary = f"{go_count} GO" + (f", {watch_count} WATCH" if watch_count else "")
+        subject = f"🏠 Property Pipeline — {len(alerts)} deal{'s' if len(alerts) != 1 else ''} today ({summary})"
 
-        html_content = build_email_html(listing, feasibility, vision, text_classification)
+        html_content = build_digest_email_html(alerts)
 
         resend.Emails.send({
             "from":    "onboarding@resend.dev",
@@ -266,12 +307,30 @@ def send_alert(listing: dict, feasibility: dict, vision: dict = None, text_class
             "html":    html_content,
         })
 
-        mark_listing_alerted(listing["id"])
+        for a in alerts:
+            try:
+                mark_listing_alerted(a["listing"]["id"])
+            except Exception:
+                pass
+
         return True
 
     except Exception as e:
-        print(f"  ✗ Failed to send alert: {e}")
+        print(f"  ✗ Failed to send digest email: {e}")
         return False
+
+
+# ─────────────────────────────────────────
+# SEND SINGLE ALERT (kept for test runner)
+# ─────────────────────────────────────────
+def send_alert(listing: dict, feasibility: dict, vision: dict = None, text_classification: dict = None) -> bool:
+    """Send a single listing alert (wraps send_digest_email)."""
+    return send_digest_email([{
+        "listing":    listing,
+        "feasibility": feasibility,
+        "vision":     vision,
+        "text":       text_classification,
+    }])
 
 
 # ─────────────────────────────────────────

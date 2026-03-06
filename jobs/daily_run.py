@@ -28,7 +28,7 @@ from classifiers.text import classify_listing_text
 from classifiers.photos import process_listing_photos
 from classifiers.vision import score_listing_renovation
 from agents.insights import analyse_listing, print_analysis
-from alerts.email import send_alert
+from alerts.email import send_digest_email
 from db.client import supabase
 
 # ─────────────────────────────────────────
@@ -235,7 +235,8 @@ def run():
                 else:
                     stats["pass"] += 1
 
-                if verdict in ALERT_VERDICTS:
+                margin = analysis.get("feasibility", {}).get("margin_on_capital_pct", 0)
+                if verdict in ALERT_VERDICTS and margin >= 0:
                     alerts_to_send.append((listing, analysis))
                     print_analysis(analysis)
 
@@ -250,33 +251,45 @@ def run():
     print(f"\n[3/3] Sending alerts ({len(alerts_to_send)} deals found)...\n")
 
     if alerts_to_send and not DRY_RUN:
+        digest_alerts = []
         for listing, analysis in alerts_to_send:
             try:
                 pf = analysis["_meta"]["preflight_feasibility"]
                 feasibility_for_email = {
-                    "verdict":        analysis.get("verdict"),
-                    "arv":            analysis.get("arv_estimate", 0),
-                    "arv_confidence": analysis.get("arv_confidence", "low"),
-                    "arv_method":     "suburb_gap",
-                    "reno_cost":      pf.get("reno_cost", 0),
-                    "buying_costs":   pf.get("buying_costs", 0),
-                    "holding_costs":  pf.get("holding_costs", 0),
-                    "selling_costs":  pf.get("selling_costs", 0),
-                    "profit_target":  pf.get("target_profit_15pct", 0),
-                    "max_offer":      analysis["feasibility"].get("max_offer", 0),
-                    "margin_at_list": analysis["feasibility"].get("margin_at_asking_pct", 0) / 100,
+                    "verdict":              analysis.get("verdict"),
+                    "arv":                  analysis.get("arv_estimate", 0),
+                    "arv_confidence":       analysis.get("arv_confidence", "low"),
+                    "arv_method":           "suburb_gap",
+                    "reno_cost":            pf.get("reno_cost", 0),
+                    "buying_costs":         pf.get("buying_costs", 0),
+                    "holding_costs":        pf.get("holding_costs", 0),
+                    "selling_costs":        pf.get("selling_costs", 0),
+                    "capital_injected":     pf.get("capital_injected", 0),
+                    "profit_target":        pf.get("target_profit_10pct", 0),
+                    "max_bid_above_asking": analysis["feasibility"].get("max_bid_above_asking", 0),
+                    "margin_at_list":       analysis["feasibility"].get("margin_on_capital_pct", 0) / 100,
                     "scenarios": {
                         k: {"arv": v.get("arv", 0), "reno_cost": v.get("reno_cost", 0),
-                            "margin": v.get("margin_pct", 0) / 100}
+                            "margin": v.get("margin_on_capital_pct", 0) / 100}
                         for k, v in analysis.get("scenarios", {}).items()
                     },
                 }
-                vision_for_email = {"red_flags": analysis.get("red_flags", [])}
-                text_for_email = listing.get("text_renovation_signals", {})
-                send_alert(listing, feasibility_for_email, vision_for_email, text_for_email)
-                print(f"  ✓ Alert sent: {listing.get('address')}")
+                digest_alerts.append({
+                    "listing":    listing,
+                    "feasibility": feasibility_for_email,
+                    "vision":     {"red_flags": analysis.get("red_flags", [])},
+                    "text":       listing.get("text_renovation_signals", {}),
+                })
             except Exception as e:
-                print(f"  ✗ Email alert failed for {listing.get('address')}: {e}")
+                print(f"  ✗ Failed to prepare alert for {listing.get('address')}: {e}")
+                stats["errors"] += 1
+
+        if digest_alerts:
+            try:
+                send_digest_email(digest_alerts)
+                print(f"  ✓ Digest email sent with {len(digest_alerts)} deal(s)")
+            except Exception as e:
+                print(f"  ✗ Digest email failed: {e}")
                 stats["errors"] += 1
     elif DRY_RUN:
         print(f"  [DRY RUN] Would send alert for {len(alerts_to_send)} listing(s)")

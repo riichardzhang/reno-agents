@@ -177,8 +177,8 @@ FEASIBILITY = {
     "holding_months":       5,          # average reno + hold period
     "holding_rate":         0.06,       # annual interest rate on purchase price
     "marketing_cost":       3000,       # flat fee on sale
-    "profit_target":        0.15,       # minimum 15% margin on ARV
-    "alert_threshold":      0.15,       # only alert if margin >= this
+    "profit_target":        0.10,       # minimum 10% margin on capital injected
+    "alert_threshold":      0.10,       # only alert if margin >= this
 }
 
 # ─────────────────────────────────────────
