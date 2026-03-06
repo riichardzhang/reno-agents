@@ -195,7 +195,7 @@ def build_listing_card_html(listing: dict, feasibility: dict, vision: dict = Non
                         <td style='padding:4px 12px;text-align:right;'>${feasibility.get('selling_costs',0):,}</td>
                     </tr>
                     <tr>
-                        <td style='padding:4px 12px;color:#666;'>Capital injected (80% LVR)</td>
+                        <td style='padding:4px 12px;color:#666;'>Total capital deployed</td>
                         <td style='padding:4px 12px;text-align:right;'>${feasibility.get('capital_injected',0):,}</td>
                     </tr>
                     <tr>
@@ -240,6 +240,8 @@ def build_listing_card_html(listing: dict, feasibility: dict, vision: dict = Non
 # ─────────────────────────────────────────
 def build_digest_email_html(alerts: list) -> str:
     """Build a single digest email containing all deal cards."""
+    sorted_alerts = sorted(alerts, key=lambda a: 0 if a["feasibility"].get("verdict") == "GO" else 1)
+
     go_count    = sum(1 for a in alerts if a["feasibility"].get("verdict") == "GO")
     watch_count = sum(1 for a in alerts if a["feasibility"].get("verdict") == "WATCH")
 
@@ -247,7 +249,7 @@ def build_digest_email_html(alerts: list) -> str:
 
     cards_html = "".join([
         build_listing_card_html(a["listing"], a["feasibility"], a.get("vision"), a.get("text"))
-        for a in alerts
+        for a in sorted_alerts
     ])
 
     return f"""
@@ -296,7 +298,8 @@ def send_digest_email(alerts: list) -> bool:
         go_count    = sum(1 for a in alerts if a["feasibility"].get("verdict") == "GO")
         watch_count = sum(1 for a in alerts if a["feasibility"].get("verdict") == "WATCH")
         summary = f"{go_count} GO" + (f", {watch_count} WATCH" if watch_count else "")
-        subject = f"🏠 Property Pipeline — {len(alerts)} deal{'s' if len(alerts) != 1 else ''} today ({summary})"
+        date_str = datetime.now().strftime("%A %d %B")
+        subject = f"🏠 Property Pipeline — {date_str} — {len(alerts)} deal{'s' if len(alerts) != 1 else ''} ({summary})"
 
         html_content = build_digest_email_html(alerts)
 

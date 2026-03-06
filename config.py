@@ -196,9 +196,9 @@ RENO_COSTS = {
         "none":     0
     },
     "bathroom": {
-        "high":     22000,
-        "medium":   12000,
-        "low":      5000,
+        "high":     30000,
+        "medium":   18000,
+        "low":      8000,
         "none":     0
     },
     "floors": {

@@ -19,8 +19,8 @@ client = Anthropic()
 # ---------------------------------------------------------------------------
 RENO_COST_TIERS = {
     "cosmetic":    30_000,   # score 3–4, paint/floors/fixtures
-    "standard":    50_000,   # score 2–3, + kitchen & bathroom (default)
-    "full":        80_000,   # score 1–2, everything
+    "standard":    60_000,   # score 2–3, + kitchen & full bathroom replace
+    "full":        90_000,   # score 1–2, everything
 }
 
 def estimate_reno_cost(avg_reno_score: float) -> Tuple[int, str]:
@@ -74,8 +74,8 @@ def preflight_feasibility(
     Buying costs: stamp duty ~4% + conveyancing $2k
     Holding costs: 5 months at ~0.5%/month of purchase price
     Selling costs: $3k flat fee
-    Target profit margin: 10% on capital injected at 80% LVR
-    Capital injected = 20% deposit + buying costs + reno + holding + selling
+    Target profit margin: 10% on total capital deployed (purchase + all costs)
+    Capital = purchase price + buying costs + reno + holding + selling
     """
     stamp_duty = asking_price * 0.04
     conveyancing = 2_000
@@ -88,20 +88,19 @@ def preflight_feasibility(
 
     total_costs = reno_cost + buying_costs + holding_costs + selling_costs
 
-    # Capital injected at 80% LVR
-    deposit = asking_price * 0.20
-    capital_injected = deposit + buying_costs + reno_cost + holding_costs + selling_costs
+    # Total capital deployed (purchase price + all costs, including borrowed)
+    capital_injected = asking_price + total_costs
 
     target_profit = capital_injected * 0.10
 
-    # Max offer for 10% margin on capital injected (algebraic solution):
-    # Let FC = reno_cost + conveyancing + selling_costs (fixed non-price costs)
-    # profit = ARV - FC - 1.065*P
-    # capital = 0.285*P + FC
+    # Max offer for 10% margin on total capital (algebraic solution):
+    # Let fc = reno + conveyancing + selling (fixed non-price costs)
+    # profit = ARV - 1.065*P - fc
+    # capital = 1.065*P + fc
     # profit = 0.10 * capital
-    # => P_max = (ARV - FC * 1.10) / 1.0935
+    # => ARV - 1.10*fc = 1.1715*P
     fc = reno_cost + conveyancing + selling_costs
-    max_offer = (arv_estimate - fc * 1.10) / 1.0935
+    max_offer = (arv_estimate - fc * 1.10) / 1.1715
     max_bid_above_asking = round(max_offer - asking_price)
 
     actual_profit = arv_estimate - asking_price - total_costs
@@ -191,14 +190,14 @@ Buying costs:            ${f['buying_costs']:,}  (stamp duty ~4% + $2k conveyanc
 Holding costs:           ${f['holding_costs']:,}  (5 months at 0.5%/month)
 Selling costs:           ${f['selling_costs']:,}  (flat fee)
 Total costs:             ${f['total_costs']:,}
-Capital injected (80% LVR): ${f['capital_injected']:,}  (20% deposit + all cash costs)
+Total capital deployed:      ${f['capital_injected']:,}  (purchase price + all costs)
 ─────────────────────────────────────────────────
 Max bid above asking for 10% margin on capital: ${f['max_bid_above_asking']:,}
 Actual profit at asking:  ${f['actual_profit_at_asking']:,}
 Actual margin on capital: {f['actual_margin_pct']}%
 
 IMPORTANT CONTEXT:
-- All margins are calculated on capital injected (not ARV). Target is 10%.
+- All margins are calculated on total capital deployed (purchase price + all costs). Target is 10%.
 - Properties in this market sell AT or ABOVE asking. Do NOT suggest bidding below asking.
 - "max_bid_above_asking" = maximum dollars ABOVE asking you can offer and still hit 10% margin on capital.
   A positive number means you have headroom above asking. A negative number means the deal doesn't work at asking.
