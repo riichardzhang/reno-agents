@@ -18,9 +18,9 @@ client = Anthropic()
 # Reno cost tiers (based on avg reno score from classifiers)
 # ---------------------------------------------------------------------------
 RENO_COST_TIERS = {
-    "cosmetic":    30_000,   # score 3–4, paint/floors/fixtures
-    "standard":    60_000,   # score 2–3, + kitchen & full bathroom replace
-    "full":        90_000,   # score 1–2, everything
+    "cosmetic":    25_000,   # score 3–4, paint/floors/fixtures
+    "standard":    55_000,   # score 2–3, + kitchen & full bathroom replace
+    "full":        80_000,   # score 1–2, everything
 }
 
 def estimate_reno_cost(avg_reno_score: float) -> Tuple[int, str]:

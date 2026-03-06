@@ -236,7 +236,8 @@ def run():
                     stats["pass"] += 1
 
                 margin = analysis.get("feasibility", {}).get("margin_on_capital_pct", 0)
-                if verdict in ALERT_VERDICTS and margin >= 0:
+                worst_margin = analysis.get("scenarios", {}).get("worst", {}).get("margin_on_capital_pct", 0)
+                if verdict in ALERT_VERDICTS and margin >= 0 and worst_margin >= 0:
                     alerts_to_send.append((listing, analysis))
                     print_analysis(analysis)
 
