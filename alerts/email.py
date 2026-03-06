@@ -95,13 +95,10 @@ def build_listing_card_html(listing: dict, feasibility: dict, vision: dict = Non
     margin_pct = feasibility.get('margin_at_list', 0) * 100
     margin_color = "#16A34A" if margin_pct >= 10 else "#D97706" if margin_pct >= 0 else "#DC2626"
 
+    max_offer_price = feasibility.get('max_offer_price', 0)
     max_bid = feasibility.get('max_bid_above_asking', 0)
-    if max_bid >= 0:
-        max_bid_str = f"+${max_bid:,}"
-        max_bid_color = "#16A34A"
-    else:
-        max_bid_str = f"-${abs(max_bid):,}"
-        max_bid_color = "#DC2626"
+    max_bid_color = "#16A34A" if max_bid >= 0 else "#DC2626"
+    delta_str = f"(+${max_bid:,} above asking)" if max_bid >= 0 else f"(-${abs(max_bid):,} below asking)"
 
     return f"""
         <!-- ── LISTING CARD ── -->
@@ -127,8 +124,9 @@ def build_listing_card_html(listing: dict, feasibility: dict, vision: dict = Non
                         <div style='font-size:22px;font-weight:bold;'>${listing.get('price',0):,}</div>
                     </div>
                     <div>
-                        <div style='font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;'>Max Bid Above Asking</div>
-                        <div style='font-size:22px;font-weight:bold;color:{max_bid_color};'>{max_bid_str}</div>
+                        <div style='font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;'>Max Offer Price</div>
+                        <div style='font-size:22px;font-weight:bold;color:{max_bid_color};'>${max_offer_price:,}</div>
+                        <div style='font-size:12px;color:#999;'>{delta_str}</div>
                     </div>
                     <div>
                         <div style='font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;'>ARV Estimate</div>
@@ -207,9 +205,10 @@ def build_listing_card_html(listing: dict, feasibility: dict, vision: dict = Non
                         <td style='padding:4px 12px;text-align:right;'>${feasibility.get('profit_target',0):,}</td>
                     </tr>
                     <tr style='font-weight:bold;border-top:2px solid #1a1a1a;'>
-                        <td style='padding:10px 12px;font-size:16px;'>MAX BID ABOVE ASKING</td>
+                        <td style='padding:10px 12px;font-size:16px;'>MAX OFFER PRICE</td>
                         <td style='padding:10px 12px;text-align:right;font-size:16px;color:{max_bid_color};'>
-                            {max_bid_str}
+                            ${max_offer_price:,}
+                            <div style='font-size:12px;font-weight:normal;color:#999;'>{delta_str}</div>
                         </td>
                     </tr>
                 </table>

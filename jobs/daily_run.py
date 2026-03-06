@@ -26,7 +26,7 @@ from typing import Optional
 from sources.domain import fetch_new_listings
 from classifiers.text import classify_listing_text
 from classifiers.photos import process_listing_photos
-from classifiers.vision import score_listing_renovation
+from classifiers.vision import score_listing_renovation, classify_property_style
 from agents.insights import analyse_listing, print_analysis
 from alerts.email import send_digest_email
 from db.client import supabase
@@ -145,12 +145,22 @@ def process_listing(listing: dict, suburb_gaps: dict) -> Optional[dict]:
         print(f"     ⚠ Property classified as renovated — skipping insights")
         return None
 
+    # ── Step 5b: Property style classification (for ARV calibration) ──
+    property_style = {"style": "uncertain", "confidence": 0.0}
+    try:
+        if photo_urls:
+            print(f"     → Classifying property style...")
+            property_style = classify_property_style(photo_urls)
+            listing["property_style"] = property_style.get("style", "uncertain")
+    except Exception as e:
+        print(f"     ✗ Property style classification error: {e}")
+
     # ── Step 6: Insights agent ──
     try:
         print(f"     → Running insights agent...")
-        analysis = analyse_listing(listing, gap_data={suburb: gap_data})
+        analysis = analyse_listing(listing, gap_data={suburb: gap_data}, property_style=property_style)
         verdict = analysis.get("verdict", "PASS")
-        margin = analysis.get("feasibility", {}).get("margin_at_asking_pct", 0)
+        margin = analysis.get("feasibility", {}).get("margin_pct", 0)
         print(f"     → Verdict: {verdict}  |  Margin: {margin}%")
         return analysis
     except Exception as e:
@@ -267,6 +277,7 @@ def run():
                     "selling_costs":        pf.get("selling_costs", 0),
                     "capital_injected":     pf.get("capital_injected", 0),
                     "profit_target":        pf.get("target_profit_10pct", 0),
+                    "max_offer_price":      pf.get("max_offer_price", 0),
                     "max_bid_above_asking": analysis["feasibility"].get("max_bid_above_asking", 0),
                     "margin_at_list":       analysis["feasibility"].get("margin_pct", 0) / 100,
                     "scenarios": {

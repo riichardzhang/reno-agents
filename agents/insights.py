@@ -131,7 +131,7 @@ def preflight_feasibility(
 # ---------------------------------------------------------------------------
 # Prompt builder
 # ---------------------------------------------------------------------------
-def build_prompt(listing: dict, suburb_gap: Optional[dict], feasibility: dict) -> str:
+def build_prompt(listing: dict, suburb_gap: Optional[dict], feasibility: dict, property_style: Optional[dict] = None) -> str:
     suburb = listing.get("suburb", "Unknown")
     address = listing.get("address", "Unknown")
     asking_price = listing.get("price", 0)
@@ -202,11 +202,17 @@ Max bid above asking for 10% margin on capital: ${f['max_bid_above_asking']:,}
 Actual profit at asking:  ${f['actual_profit_at_asking']:,}
 Actual margin on capital: {f['actual_margin_pct']}%
 
+PROPERTY STYLE: {property_style.get('style', 'uncertain') if property_style else 'uncertain'} ({property_style.get('reasoning', '') if property_style else ''})
+
 IMPORTANT CONTEXT:
 - All margin % figures are profit / (purchase price + all costs). Target is 10%.
 - Properties in this market sell AT or ABOVE asking. Do NOT suggest bidding below asking.
 - "max_bid_above_asking" = maximum dollars ABOVE asking you can offer and still hit 10% margin on capital.
   A positive number means you have headroom above asking. A negative number means the deal doesn't work at asking.
+- ARV CALIBRATION: The suburb renovated median may include new builds, which command a premium over
+  renovated character/older homes. If this is a character_home, estimate ARV conservatively based on
+  what renovated older-style homes actually achieve — typically 5-15% below the headline renovated median.
+  Reflect this in your arv_reasoning.
 
 === YOUR TASK ===
 Return ONLY a valid JSON object (no markdown, no preamble) with this exact structure:
@@ -244,6 +250,7 @@ def analyse_listing(
     listing: dict,
     gap_data: Optional[dict] = None,
     arv_override: Optional[float] = None,
+    property_style: Optional[dict] = None,
 ) -> dict:
     """
     Run the full insights agent on a single listing.
@@ -280,7 +287,7 @@ def analyse_listing(
     feasibility["reno_tier"] = reno_tier
 
     # 5. Build prompt and call Claude Sonnet
-    prompt = build_prompt(listing, suburb_gap, feasibility)
+    prompt = build_prompt(listing, suburb_gap, feasibility, property_style)
 
     response = client.messages.create(
         model="claude-sonnet-4-20250514",

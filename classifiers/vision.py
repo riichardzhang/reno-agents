@@ -189,6 +189,100 @@ def score_listing_renovation(listing_id: str) -> dict:
 
 
 # ─────────────────────────────────────────
+# CLASSIFY PROPERTY STYLE
+# ─────────────────────────────────────────
+def classify_property_style(photo_urls: list) -> dict:
+    """
+    Classify property style (character home vs new build) using the first 1-2 photos.
+    Used to calibrate ARV — new builds fetch a premium over renovated character homes.
+    Returns style classification and confidence.
+    """
+    import requests
+    import base64
+
+    if not photo_urls:
+        return {"style": "uncertain", "confidence": 0.0, "reasoning": "No photos available"}
+
+    # Download first photo (usually exterior/hero shot)
+    photo_b64 = None
+    for url in photo_urls[:3]:
+        try:
+            response = requests.get(
+                url,
+                headers={
+                    "Referer": "https://www.domain.com.au",
+                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+                },
+                timeout=10
+            )
+            if response.status_code == 200:
+                photo_b64 = base64.b64encode(response.content).decode("utf-8")
+                break
+        except Exception:
+            continue
+
+    if not photo_b64:
+        return {"style": "uncertain", "confidence": 0.0, "reasoning": "Could not download photos"}
+
+    prompt = """You are a property analyst looking at an Australian residential property photo.
+
+Classify the property style to help determine an accurate ARV (after renovation value).
+
+Categories:
+- character_home: older style home, likely pre-1990s — visible age in roofline, windows, brickwork, weatherboard,
+  fibro, period features, older construction materials. These sell for less than new builds even when fully renovated.
+- new_build: clearly modern/contemporary construction, built post-2000s — clean lines, modern cladding,
+  large glazing, new materials throughout. Commands a premium over renovated older homes.
+- modern_renovated: older structure but heavily modernised exterior — hard to tell original age
+- uncertain: interior shot, or genuinely can't determine age/style from this photo
+
+This classification is used to calibrate ARV estimates, so be conservative — only classify as new_build
+if you are confident.
+
+Respond in JSON only, no other text:
+{
+    "style": "<character_home|new_build|modern_renovated|uncertain>",
+    "confidence": <float 0.0-1.0>,
+    "reasoning": "<one sentence>"
+}"""
+
+    try:
+        response = client.messages.create(
+            model=MODELS["classification"],
+            max_tokens=150,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/jpeg",
+                            "data": photo_b64
+                        }
+                    },
+                    {"type": "text", "text": prompt}
+                ]
+            }]
+        )
+
+        raw = response.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        raw = raw.strip()
+
+        result = json.loads(raw)
+        print(f"  → Property style: {result['style']} ({result['confidence']:.0%}) — {result['reasoning']}")
+        return result
+
+    except Exception as e:
+        print(f"  ✗ Property style classification error: {e}")
+        return {"style": "uncertain", "confidence": 0.0, "reasoning": str(e)}
+
+
+# ─────────────────────────────────────────
 # QUICK TEST
 # ─────────────────────────────────────────
 if __name__ == "__main__":
