@@ -235,8 +235,8 @@ def run():
                 else:
                     stats["pass"] += 1
 
-                margin = analysis.get("feasibility", {}).get("margin_on_capital_pct", 0)
-                worst_margin = analysis.get("scenarios", {}).get("worst", {}).get("margin_on_capital_pct", 0)
+                margin = analysis.get("feasibility", {}).get("margin_pct", 0)
+                worst_margin = analysis.get("scenarios", {}).get("worst", {}).get("margin_pct", 0)
                 if verdict in ALERT_VERDICTS and margin >= 0 and worst_margin >= 0:
                     alerts_to_send.append((listing, analysis))
                     print_analysis(analysis)
@@ -268,11 +268,11 @@ def run():
                     "capital_injected":     pf.get("capital_injected", 0),
                     "profit_target":        pf.get("target_profit_10pct", 0),
                     "max_bid_above_asking": analysis["feasibility"].get("max_bid_above_asking", 0),
-                    "margin_at_list":       analysis["feasibility"].get("margin_on_capital_pct", 0) / 100,
+                    "margin_at_list":       analysis["feasibility"].get("margin_pct", 0) / 100,
                     "scenarios": {
                         k: {"arv": v.get("arv", 0), "reno_cost": v.get("reno_cost", 0),
                             "profit": v.get("profit", 0),
-                            "margin": v.get("margin_on_capital_pct", 0) / 100}
+                            "margin": v.get("margin_pct", 0) / 100}
                         for k, v in analysis.get("scenarios", {}).items()
                     },
                 }

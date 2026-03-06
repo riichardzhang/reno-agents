@@ -113,7 +113,7 @@ def build_listing_card_html(listing: dict, feasibility: dict, vision: dict = Non
                 <p style='margin:4px 0 0;font-size:13px;opacity:0.9;'>
                     {listing.get('suburb','')}, {listing.get('state','')}
                     &nbsp;|&nbsp;
-                    Margin on capital: <strong>{margin_pct:.1f}%</strong>
+                    Margin on total cost: <strong>{margin_pct:.1f}%</strong>
                     &nbsp;|&nbsp;
                     Target: {FEASIBILITY['profit_target']*100:.0f}%
                 </p>
@@ -203,7 +203,7 @@ def build_listing_card_html(listing: dict, feasibility: dict, vision: dict = Non
                         <td style='padding:4px 12px;text-align:right;'>${feasibility.get('capital_injected',0):,}</td>
                     </tr>
                     <tr>
-                        <td style='padding:4px 12px;color:#666;'>Profit target (10% on capital)</td>
+                        <td style='padding:4px 12px;color:#666;'>Profit target (10% on total cost)</td>
                         <td style='padding:4px 12px;text-align:right;'>${feasibility.get('profit_target',0):,}</td>
                     </tr>
                     <tr style='font-weight:bold;border-top:2px solid #1a1a1a;'>
@@ -218,7 +218,7 @@ def build_listing_card_html(listing: dict, feasibility: dict, vision: dict = Non
             <!-- Scenarios -->
             <div style='padding:20px 24px;'>
                 <h3 style='margin:0 0 12px;font-size:15px;text-transform:uppercase;letter-spacing:1px;color:#666;'>
-                    Scenario Modelling (margin on capital)
+                    Scenario Modelling (margin on total cost)
                 </h3>
                 <table style='width:100%;border-collapse:collapse;font-size:14px;'>
                     <thead>
