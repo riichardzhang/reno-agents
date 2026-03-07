@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import json
 import time
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from sources.domain import fetch_new_listings
@@ -29,7 +29,7 @@ from classifiers.photos import process_listing_photos
 from classifiers.vision import score_listing_renovation, classify_property_style
 from agents.insights import analyse_listing, print_analysis
 from alerts.email import send_digest_email
-from db.client import supabase, get_photos_for_listing
+from db.client import supabase, get_photos_for_listing, update_listing
 
 # ─────────────────────────────────────────
 # CONFIG
@@ -78,7 +78,7 @@ def get_gap_for_suburb(suburb: str, gaps: dict) -> Optional[dict]:
 # ─────────────────────────────────────────
 # PIPELINE: PROCESS A SINGLE LISTING
 # ─────────────────────────────────────────
-def process_listing(listing: dict, suburb_gaps: dict) -> Optional[dict]:
+def process_listing(listing: dict, suburb_gaps: dict, skip_property_style: bool = False) -> Optional[dict]:
     listing_id = listing.get("id")
     address = listing.get("address", "Unknown")
     suburb = listing.get("suburb", "")
@@ -147,14 +147,17 @@ def process_listing(listing: dict, suburb_gaps: dict) -> Optional[dict]:
         return None
 
     # ── Step 5b: Property style classification (for ARV calibration) ──
+    # Skipped for re-check listings — only kitchen/bathroom URLs in DB (interior shots
+    # always return uncertain anyway), so we avoid a wasted Haiku vision call.
     property_style = {"style": "uncertain", "confidence": 0.0}
-    try:
-        if photo_urls:
-            print(f"     → Classifying property style...")
-            property_style = classify_property_style(photo_urls)
-            listing["property_style"] = property_style.get("style", "uncertain")
-    except Exception as e:
-        print(f"     ✗ Property style classification error: {e}")
+    if not skip_property_style:
+        try:
+            if photo_urls:
+                print(f"     → Classifying property style...")
+                property_style = classify_property_style(photo_urls)
+                listing["property_style"] = property_style.get("style", "uncertain")
+        except Exception as e:
+            print(f"     ✗ Property style classification error: {e}")
 
     # ── Step 6: Insights agent ──
     try:
@@ -162,7 +165,20 @@ def process_listing(listing: dict, suburb_gaps: dict) -> Optional[dict]:
         analysis = analyse_listing(listing, gap_data={suburb: gap_data}, property_style=property_style)
         verdict = analysis.get("verdict", "PASS")
         margin = analysis.get("feasibility", {}).get("margin_pct", 0)
+        max_offer = analysis.get("_meta", {}).get("preflight_feasibility", {}).get("max_offer_price", 0)
         print(f"     → Verdict: {verdict}  |  Margin: {margin}%")
+
+        # Persist verdict and margin to DB so re-check runs can use them
+        try:
+            update_listing(listing_id, {
+                "verdict":        verdict,
+                "margin_percent": margin,
+                "max_offer_price": max_offer,
+                "evaluated_at":   datetime.now(timezone.utc).isoformat(),
+            })
+        except Exception:
+            pass  # Non-critical — don't fail the pipeline if DB write fails
+
         return analysis
     except Exception as e:
         print(f"     ✗ Insights agent error: {e}")
@@ -223,12 +239,11 @@ def run():
         return
 
     if not new_listings:
-        print("\n✓ No new listings today — nothing to do")
-        log_run(stats)
-        return
+        print("\n✓ No new listings today — skipping to re-check step")
 
     # ── 3. Process each listing ──
-    print(f"\n[2/3] Running pipeline on {len(new_listings)} listings...\n")
+    if new_listings:
+        print(f"\n[2/3] Running pipeline on {len(new_listings)} listings...\n")
 
     for i, listing in enumerate(new_listings, 1):
         print(f"[{i}/{len(new_listings)}]", end="")
@@ -261,33 +276,44 @@ def run():
 
     # ── 3b. Re-analyse existing active listings ──
     # Listings already in DB are skipped by fetch_new_listings(), but good deals
-    # on the market still need to appear in the daily digest.
+    # still on the market need to appear in the digest.
+    # Strategy:
+    #   - Unalerted listings: always re-run (may have been missed on first pass)
+    #   - Alerted listings: re-run weekly (Mondays) to refresh numbers; skip other days
     print(f"\n[2b/3] Re-checking existing active listings...\n")
     new_listing_ids = {l.get("id") for l in new_listings}
+    is_monday = datetime.now(timezone.utc).weekday() == 0
+
     try:
         existing_result = supabase.table("listings") \
             .select("*") \
             .eq("status", "active") \
-            .neq("classification", "renovated") \
-            .not_.is_("renovation_score", "null") \
             .execute()
-        existing_listings = [l for l in existing_result.data if l["id"] not in new_listing_ids]
+        existing_listings = [
+            l for l in existing_result.data
+            if l["id"] not in new_listing_ids
+            and l.get("renovation_score") is not None
+            and l.get("classification") != "renovated"
+        ]
         print(f"  → {len(existing_listings)} existing active listings to re-check")
     except Exception as e:
         print(f"  ✗ Failed to fetch existing listings: {e}")
         existing_listings = []
 
     for i, listing in enumerate(existing_listings, 1):
+        already_alerted = listing.get("alerted", False)
+
+        # Alerted listings: only re-run insights on Mondays to avoid daily Sonnet spend
+        if already_alerted and not is_monday:
+            print(f"[E{i}/{len(existing_listings)}]  ── {listing.get('address')} — skipping (alerted, not Monday)")
+            continue
+
         print(f"[E{i}/{len(existing_listings)}]", end="")
-        # Attach photo URLs from photos table so property style classifier can use them
-        try:
-            photos = get_photos_for_listing(listing["id"])
-            listing["_photo_urls"] = [p["url"] for p in photos if p.get("url")]
-        except Exception:
-            listing["_photo_urls"] = []
+        # Property style skipped — photos table only has interior shots, always returns uncertain
+        listing["_photo_urls"] = []
 
         try:
-            analysis = process_listing(listing, suburb_gaps)
+            analysis = process_listing(listing, suburb_gaps, skip_property_style=True)
             if analysis:
                 stats["analysed"] += 1
                 verdict = analysis.get("verdict", "PASS")
