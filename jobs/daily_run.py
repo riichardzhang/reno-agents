@@ -102,16 +102,26 @@ def process_listing(listing: dict, suburb_gaps: dict, skip_property_style: bool 
 
     # ── Step 2: Text classification ──
     description = listing.get("description", "")
-    try:
-        text_result = classify_listing_text(listing_id, description)
+    existing_classification = listing.get("classification")
+    if existing_classification and existing_classification not in ("uncertain", None):
+        # Already classified — skip the Claude call
+        print(f"     → Text: using stored classification ({existing_classification})")
         listing["text_renovation_signals"] = {
-            "classification": text_result.get("classification"),
-            "signals":        text_result.get("signals", []),
-            "confidence":     text_result.get("confidence", 0),
+            "classification": existing_classification,
+            "signals": [],
+            "confidence": 0.8,
         }
-    except Exception as e:
-        print(f"     ✗ Text classification error: {e}")
-        listing["text_renovation_signals"] = {}
+    else:
+        try:
+            text_result = classify_listing_text(listing_id, description)
+            listing["text_renovation_signals"] = {
+                "classification": text_result.get("classification"),
+                "signals":        text_result.get("signals", []),
+                "confidence":     text_result.get("confidence", 0),
+            }
+        except Exception as e:
+            print(f"     ✗ Text classification error: {e}")
+            listing["text_renovation_signals"] = {}
 
     # ── Step 3: Photo processing ──
     photo_urls = listing.get("_photo_urls", [])
@@ -217,9 +227,10 @@ def run():
 
     stats = {"fetched": 0, "analysed": 0, "go": 0, "watch": 0, "pass": 0, "errors": 0}
     alerts_to_send = []
+    is_monday = datetime.now(timezone.utc).weekday() == 0
 
-    # ── 0. Refresh sold data ──
-    if not DRY_RUN:
+    # ── 0. Refresh sold data (weekly — Mondays only) ──
+    if not DRY_RUN and is_monday:
         refresh_sold_data()
 
     # ── 1. Load suburb gap cache ──
@@ -282,7 +293,6 @@ def run():
     #   - Alerted listings: re-run weekly (Mondays) to refresh numbers; skip other days
     print(f"\n[2b/3] Re-checking existing active listings...\n")
     new_listing_ids = {l.get("id") for l in new_listings}
-    is_monday = datetime.now(timezone.utc).weekday() == 0
 
     try:
         existing_result = supabase.table("listings") \

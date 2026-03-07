@@ -130,7 +130,7 @@ def fetch_sold_via_apify(urls: list) -> list:
     # Step 2: Poll until run finishes
     print(f"  → Waiting for run to complete...")
     for attempt in range(60):  # max 5 minutes
-        time.sleep(5)
+        time.sleep(15 if attempt == 0 else 5)
 
         status_response = requests.get(
             f"https://api.apify.com/v2/actor-runs/{run_id}",
@@ -312,7 +312,7 @@ def run_backfill_regions():
 
     print("Waiting for completion...")
     for attempt in range(240):  # up to 20 minutes
-        time.sleep(5)
+        time.sleep(15 if attempt == 0 else 5)
         status_response = requests.get(
             f"https://api.apify.com/v2/actor-runs/{run_id}",
             params={"token": APIFY_API_TOKEN}

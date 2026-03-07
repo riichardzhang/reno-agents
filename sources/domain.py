@@ -246,7 +246,7 @@ def fetch_all_via_apify() -> list:
 
     # Poll until complete
     for attempt in range(120):
-        time.sleep(5)
+        time.sleep(15 if attempt == 0 else 5)
         status_response = requests.get(
             f"https://api.apify.com/v2/actor-runs/{run_id}",
             params={"token": APIFY_API_TOKEN}
@@ -266,9 +266,51 @@ def fetch_all_via_apify() -> list:
     return results_response.json() if results_response.status_code == 200 else []
 
 
-def fetch_new_listings() -> list:
+def _apify_run(search_urls: list, max_items: int = 100) -> list:
+    """Start an Apify run, poll until complete, return dataset items."""
+    run_response = requests.post(
+        "https://api.apify.com/v2/acts/easyapi~domain-com-au-property-scraper/runs",
+        json={"searchUrls": search_urls, "maxItems": max_items},
+        params={"token": APIFY_API_TOKEN},
+        timeout=60
+    )
+
+    if run_response.status_code not in [200, 201]:
+        print(f"  ✗ Apify error {run_response.status_code}: {run_response.text}")
+        return []
+
+    run_data = run_response.json()
+    run_id = run_data.get("data", {}).get("id")
+    dataset_id = run_data.get("data", {}).get("defaultDatasetId")
+    print(f"  → Run started: {run_id}")
+
+    for attempt in range(120):
+        time.sleep(15 if attempt == 0 else 5)
+        status_response = requests.get(
+            f"https://api.apify.com/v2/actor-runs/{run_id}",
+            params={"token": APIFY_API_TOKEN}
+        )
+        status = status_response.json().get("data", {}).get("status")
+        print(f"    Status: {status} ({attempt+1}/120)")
+        if status == "SUCCEEDED":
+            break
+        elif status in ["FAILED", "ABORTED", "TIMED-OUT"]:
+            print(f"  ✗ Run {status}")
+            return []
+
+    results_response = requests.get(
+        f"https://api.apify.com/v2/datasets/{dataset_id}/items",
+        params={"token": APIFY_API_TOKEN, "limit": max_items}
+    )
+    return results_response.json() if results_response.status_code == 200 else []
+
+
+def fetch_new_listings(gap_suburbs: set = None) -> list:
     """
-    Fetch new listings across all target regions in a single Apify call.
+    Fetch new listings for suburbs that have gap data.
+    If gap_suburbs is provided (set of suburb names with gap > threshold),
+    only those suburbs are scraped — avoiding wasted effort on suburbs we'd
+    filter out during processing anyway.
     Skips listings already in the database.
     Returns list of new listings with photo URLs attached.
     """
@@ -276,10 +318,15 @@ def fetch_new_listings() -> list:
 
     try:
         if SOURCES["use_domain_api"]:
-            # Domain API still loops per suburb
-            total = len(ALL_SUBURBS)
-            for i, suburb in enumerate(ALL_SUBURBS, 1):
-                print(f"[{i}/{total}] Fetching {suburb['name']}...")
+            # Domain API: loop only over suburbs with gap data
+            target_suburbs = [
+                s for s in ALL_SUBURBS
+                if gap_suburbs is None or s["name"].title() in gap_suburbs
+            ]
+            total = len(target_suburbs)
+            print(f"  → Domain API: fetching {total} gap suburbs")
+            for i, suburb in enumerate(target_suburbs, 1):
+                print(f"  [{i}/{total}] {suburb['name']}...")
                 raw_listings = fetch_via_domain_api(suburb)
                 normalised = [normalise_domain_api(r, suburb) for r in raw_listings]
                 for listing in normalised:
@@ -293,15 +340,26 @@ def fetch_new_listings() -> list:
                         stored_listing = stored[0] if isinstance(stored, list) else stored
                         stored_listing["_photo_urls"] = photo_urls
                         all_new.append(stored_listing)
+                time.sleep(0.5)  # gentle rate limiting for Domain API
         else:
-            # Single batched Apify call for all regions
-            raw_listings = fetch_all_via_apify()
+            # Apify: build suburb-specific URLs for only gap suburbs (or fall back to regional)
+            if gap_suburbs:
+                target_suburbs = [
+                    s for s in ALL_SUBURBS
+                    if s["name"].title() in gap_suburbs
+                ]
+                search_urls = [build_search_url(s) for s in target_suburbs]
+                print(f"  → Apify: scraping {len(search_urls)} gap suburbs (vs 3 regional)")
+            else:
+                search_urls = ACTIVE_REGION_URLS
+                print(f"  → Apify: scraping 3 regional URLs")
+
+            raw_listings = _apify_run(search_urls, max_items=min(len(search_urls) * 50, 500))
             print(f"\n  → Got {len(raw_listings)} raw results")
 
             new_count = 0
             skip_count = 0
             for raw in raw_listings:
-                # Filter to TAS only
                 address_obj = raw.get("address", {})
                 if address_obj.get("state", "").upper() != "TAS":
                     skip_count += 1
