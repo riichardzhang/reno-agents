@@ -29,7 +29,7 @@ from classifiers.photos import process_listing_photos
 from classifiers.vision import score_listing_renovation, classify_property_style
 from agents.insights import analyse_listing, print_analysis
 from alerts.email import send_digest_email
-from db.client import supabase
+from db.client import supabase, get_photos_for_listing
 
 # ─────────────────────────────────────────
 # CONFIG
@@ -125,10 +125,11 @@ def process_listing(listing: dict, suburb_gaps: dict) -> Optional[dict]:
         print(f"     ✗ Photo processing error: {e}")
 
     # ── Step 4: Vision scoring ──
-    avg_reno_score = 2.5
+    # Use DB value as fallback if scoring fails (handles repeat listings with cached scores)
+    avg_reno_score = listing.get("renovation_score") or 2.5
     try:
-        if found_rooms:
-            vision_result = score_listing_renovation(listing_id)
+        vision_result = score_listing_renovation(listing_id)
+        if vision_result:
             avg_reno_score = vision_result.get("avg_score", 2.5)
             listing["avg_reno_score"] = avg_reno_score
             listing["red_flags"] = vision_result.get("red_flags", [])
@@ -238,6 +239,58 @@ def run():
                 stats["analysed"] += 1
                 verdict = analysis.get("verdict", "PASS")
 
+                if verdict == "GO":
+                    stats["go"] += 1
+                elif verdict == "WATCH":
+                    stats["watch"] += 1
+                else:
+                    stats["pass"] += 1
+
+                margin = analysis.get("feasibility", {}).get("margin_pct", 0)
+                worst_margin = analysis.get("scenarios", {}).get("worst", {}).get("margin_pct", 0)
+                if verdict in ALERT_VERDICTS and margin >= 0 and worst_margin >= 0:
+                    alerts_to_send.append((listing, analysis))
+                    print_analysis(analysis)
+
+        except Exception as e:
+            stats["errors"] += 1
+            print(f"\n     ✗ Unhandled error: {e}")
+            traceback.print_exc()
+
+        time.sleep(1)
+
+    # ── 3b. Re-analyse existing active listings ──
+    # Listings already in DB are skipped by fetch_new_listings(), but good deals
+    # on the market still need to appear in the daily digest.
+    print(f"\n[2b/3] Re-checking existing active listings...\n")
+    new_listing_ids = {l.get("id") for l in new_listings}
+    try:
+        existing_result = supabase.table("listings") \
+            .select("*") \
+            .eq("status", "active") \
+            .neq("classification", "renovated") \
+            .not_.is_("renovation_score", "null") \
+            .execute()
+        existing_listings = [l for l in existing_result.data if l["id"] not in new_listing_ids]
+        print(f"  → {len(existing_listings)} existing active listings to re-check")
+    except Exception as e:
+        print(f"  ✗ Failed to fetch existing listings: {e}")
+        existing_listings = []
+
+    for i, listing in enumerate(existing_listings, 1):
+        print(f"[E{i}/{len(existing_listings)}]", end="")
+        # Attach photo URLs from photos table so property style classifier can use them
+        try:
+            photos = get_photos_for_listing(listing["id"])
+            listing["_photo_urls"] = [p["url"] for p in photos if p.get("url")]
+        except Exception:
+            listing["_photo_urls"] = []
+
+        try:
+            analysis = process_listing(listing, suburb_gaps)
+            if analysis:
+                stats["analysed"] += 1
+                verdict = analysis.get("verdict", "PASS")
                 if verdict == "GO":
                     stats["go"] += 1
                 elif verdict == "WATCH":
