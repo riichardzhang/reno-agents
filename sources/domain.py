@@ -354,7 +354,8 @@ def fetch_new_listings(gap_suburbs: set = None) -> list:
                 search_urls = ACTIVE_REGION_URLS
                 print(f"  → Apify: scraping 3 regional URLs")
 
-            raw_listings = _apify_run(search_urls, max_items=min(len(search_urls) * 50, 500))
+            max_items = min(len(search_urls) * 50, 500) if gap_suburbs else 500
+            raw_listings = _apify_run(search_urls, max_items=max_items)
             print(f"\n  → Got {len(raw_listings)} raw results")
 
             new_count = 0
