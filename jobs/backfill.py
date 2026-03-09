@@ -9,7 +9,7 @@ from config import APIFY_API_TOKEN, SOURCES
 from db.client import supabase
 
 NSW_PRICE_MIN = 300000
-NSW_PRICE_MAX = 650000
+NSW_PRICE_MAX = 800000
 
 # ─────────────────────────────────────────
 # KEY SUBURBS TO BACKFILL
@@ -520,7 +520,7 @@ if __name__ == "__main__":
             url = build_nsw_sold_url(suburb_name, postcode)
             print(f"Test suburb: {suburb_name} (postcode: {postcode})")
             print(f"Test URL: {url}\n")
-            results = fetch_sold_via_apify([url])
+            results = fetch_sold_via_apify([url], max_items=50)
             print(f"Got {len(results)} results")
             if results:
                 sample = normalise_sold(results[0], {"name": suburb_name})
