@@ -112,14 +112,14 @@ def normalise_sold(raw: dict, suburb: dict) -> dict:
 # ─────────────────────────────────────────
 # FETCH SOLD LISTINGS VIA APIFY
 # ─────────────────────────────────────────
-def fetch_sold_via_apify(urls: list) -> list:
+def fetch_sold_via_apify(urls: list, max_items: int = 500) -> list:
     """Fetch sold listings for a batch of URLs via Apify."""
     # Step 1: Start the run
     run_response = requests.post(
         "https://api.apify.com/v2/acts/easyapi~domain-com-au-property-scraper/runs",
         json={
             "searchUrls": urls,
-            "maxItems": 500
+            "maxItems": max_items
         },
         params={"token": APIFY_API_TOKEN},
         timeout=60
@@ -136,7 +136,7 @@ def fetch_sold_via_apify(urls: list) -> list:
 
     # Step 2: Poll until run finishes
     print(f"  → Waiting for run to complete...")
-    for attempt in range(60):  # max 5 minutes
+    for attempt in range(120):  # max 10 minutes
         time.sleep(15 if attempt == 0 else 5)
 
         status_response = requests.get(
@@ -144,7 +144,7 @@ def fetch_sold_via_apify(urls: list) -> list:
             params={"token": APIFY_API_TOKEN}
         )
         status = status_response.json().get("data", {}).get("status")
-        print(f"    Status: {status} ({attempt+1}/60)")
+        print(f"    Status: {status} ({attempt+1}/120)")
 
         if status == "SUCCEEDED":
             break
@@ -155,7 +155,7 @@ def fetch_sold_via_apify(urls: list) -> list:
     # Step 3: Fetch results from dataset
     results_response = requests.get(
         f"https://api.apify.com/v2/datasets/{dataset_id}/items",
-        params={"token": APIFY_API_TOKEN, "limit": 500}
+        params={"token": APIFY_API_TOKEN, "limit": max_items}
     )
 
     if results_response.status_code != 200:
@@ -435,7 +435,7 @@ def build_nsw_sold_url(suburb_name: str, postcode: int) -> str:
     )
 
 
-def run_nsw_backfill(batch_size: int = 5):
+def run_nsw_backfill(batch_size: int = 1):
     """
     Backfill sold listings for NSW suburbs in suburb_gaps.
     Fetches Domain sold listings via Apify for each suburb so that
@@ -456,7 +456,7 @@ def run_nsw_backfill(batch_size: int = 5):
         for url in urls:
             print(f"  → {url}")
 
-        raw_results = fetch_sold_via_apify(urls)
+        raw_results = fetch_sold_via_apify(urls, max_items=batch_size * 50)
         print(f"  → Got {len(raw_results)} raw results")
 
         batch_inserted = 0
