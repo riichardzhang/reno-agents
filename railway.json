@@ -4,7 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "python -m jobs.daily_run",
+    "startCommand": "python -m jobs.daily_run --skip-fetch",
     "restartPolicyType": "never"
   }
 }
