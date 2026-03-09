@@ -344,6 +344,100 @@ def send_alert(listing: dict, feasibility: dict, vision: dict = None, text_class
 
 
 # ─────────────────────────────────────────
+# SUBURB GAP REPORT EMAIL
+# ─────────────────────────────────────────
+def send_suburb_gap_email(results: dict) -> bool:
+    """
+    Send a suburb gap analysis report email.
+    results: dict of suburb -> gap data (from run_gap_analysis)
+    """
+    if not results:
+        return False
+
+    try:
+        resend.api_key = os.getenv("RESEND_API_KEY")
+
+        from zoneinfo import ZoneInfo
+        sydney_now = datetime.now(ZoneInfo("Australia/Sydney"))
+        date_str = sydney_now.strftime("%A %d %B")
+        subject = f"📊 Suburb Gap Report — {date_str} — {len(results)} suburbs"
+
+        # Sort by gap % descending
+        sorted_results = sorted(results.items(), key=lambda x: -x[1].get("gap_percent", 0))
+
+        rows_html = ""
+        for suburb, data in sorted_results:
+            gap_pct = data.get("gap_percent", 0)
+            gap_color = "#16A34A" if gap_pct >= 30 else "#D97706" if gap_pct >= 20 else "#DC2626"
+            rows_html += f"""
+            <tr>
+                <td style='padding:8px 12px;border-bottom:1px solid #f0f0f0;'>{suburb}</td>
+                <td style='padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:right;'>${data.get('unrenovated_median', 0):,}</td>
+                <td style='padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:right;'>${data.get('renovated_median', 0):,}</td>
+                <td style='padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:right;'>${data.get('gap_dollar', 0):,}</td>
+                <td style='padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:right;font-weight:bold;color:{gap_color};'>{gap_pct:.1f}%</td>
+                <td style='padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:right;color:#999;'>{data.get('sample_size', 0)}</td>
+            </tr>
+            """
+
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <body style='font-family:Arial,sans-serif;max-width:800px;margin:0 auto;padding:20px;color:#1a1a1a;'>
+
+            <div style='background:#1a1a1a;color:white;padding:20px 24px;border-radius:12px 12px 0 0;margin-bottom:8px;'>
+                <h1 style='margin:0;font-size:20px;'>📊 Suburb Gap Report</h1>
+                <p style='margin:4px 0 0;color:#999;font-size:13px;'>
+                    {sydney_now.strftime("%A %d %B %Y, %I:%M %p AEDT")}
+                    &nbsp;|&nbsp;
+                    {len(results)} suburbs analysed
+                </p>
+            </div>
+
+            <div style='border:1px solid #e5e5e5;border-radius:0 0 12px 12px;overflow:hidden;'>
+                <table style='width:100%;border-collapse:collapse;font-size:14px;'>
+                    <thead>
+                        <tr style='background:#f5f5f5;'>
+                            <th style='padding:10px 12px;text-align:left;font-weight:600;'>Suburb</th>
+                            <th style='padding:10px 12px;text-align:right;font-weight:600;'>Unreno Median</th>
+                            <th style='padding:10px 12px;text-align:right;font-weight:600;'>Reno Median</th>
+                            <th style='padding:10px 12px;text-align:right;font-weight:600;'>Gap $</th>
+                            <th style='padding:10px 12px;text-align:right;font-weight:600;'>Gap %</th>
+                            <th style='padding:10px 12px;text-align:right;font-weight:600;'>Sales</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows_html}
+                    </tbody>
+                </table>
+            </div>
+
+            <div style='background:#f5f5f5;padding:16px 24px;border-radius:12px;text-align:center;margin-top:16px;'>
+                <p style='margin:0;color:#999;font-size:12px;'>
+                    Property Pipeline · Suburb Gap Report · {datetime.now().strftime("%d/%m/%Y")}
+                    &nbsp;|&nbsp; Gap ≥30%: 🟢 &nbsp; 20–30%: 🟡 &nbsp; &lt;20%: 🔴
+                </p>
+            </div>
+
+        </body>
+        </html>
+        """
+
+        resend.Emails.send({
+            "from":    "onboarding@resend.dev",
+            "to":      "richard.zhang37@gmail.com",
+            "subject": subject,
+            "html":    html_content,
+        })
+
+        return True
+
+    except Exception as e:
+        print(f"  ✗ Failed to send gap report email: {e}")
+        return False
+
+
+# ─────────────────────────────────────────
 # QUICK TEST
 # ─────────────────────────────────────────
 if __name__ == "__main__":

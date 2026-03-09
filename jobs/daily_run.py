@@ -56,21 +56,6 @@ def load_suburb_gaps() -> dict:
         return {}
 
 
-def refresh_sold_data():
-    """Pull latest sold listings and update suburb gap data."""
-    from jobs.backfill import run_backfill_regions
-    from analysis.suburb_gaps import run_gap_analysis
-
-    print("\n[0/3] Refreshing sold data...\n")
-    try:
-        run_backfill_regions()
-        print("\n→ Updating suburb gap analysis...")
-        run_gap_analysis(min_sales=5)
-        print("✓ Sold data refresh complete\n")
-    except Exception as e:
-        print(f"✗ Sold data refresh failed: {e} — continuing with existing data\n")
-
-
 def get_gap_for_suburb(suburb: str, gaps: dict) -> Optional[dict]:
     return gaps.get(suburb.strip().title())
 
@@ -228,10 +213,6 @@ def run():
     stats = {"fetched": 0, "analysed": 0, "go": 0, "watch": 0, "pass": 0, "errors": 0}
     alerts_to_send = []
     is_monday = datetime.now(timezone.utc).weekday() == 0
-
-    # ── 0. Refresh sold data (weekly — Mondays only) ──
-    if not DRY_RUN and is_monday:
-        refresh_sold_data()
 
     # ── 1. Load suburb gap cache ──
     suburb_gaps = load_suburb_gaps()
@@ -421,17 +402,13 @@ def run():
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Run the daily property pipeline")
-    parser.add_argument("--dry-run",      action="store_true", help="Skip emails and DB logging")
-    parser.add_argument("--refresh-sold", action="store_true", help="Refresh sold data and gap analysis only")
-    parser.add_argument("--gap-min",      type=float, default=MIN_GAP_PCT,
+    parser.add_argument("--dry-run", action="store_true", help="Skip emails and DB logging")
+    parser.add_argument("--gap-min", type=float, default=MIN_GAP_PCT,
                         help=f"Min suburb gap %% to trigger analysis (default: {MIN_GAP_PCT})")
     args = parser.parse_args()
 
-    if args.refresh_sold:
-        refresh_sold_data()
-    else:
-        if args.dry_run:
-            DRY_RUN = True
-            print("⚠ DRY RUN MODE — no emails or DB writes")
-        MIN_GAP_PCT = args.gap_min
-        run()
+    if args.dry_run:
+        DRY_RUN = True
+        print("⚠ DRY RUN MODE — no emails or DB writes")
+    MIN_GAP_PCT = args.gap_min
+    run()
