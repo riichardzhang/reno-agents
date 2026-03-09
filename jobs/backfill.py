@@ -397,21 +397,40 @@ def run_backfill_regions():
 # NSW BACKFILL
 # ─────────────────────────────────────────
 def get_nsw_gap_suburbs() -> list:
-    """Fetch NSW house suburbs from suburb_gaps table."""
-    result = supabase.table("suburb_gaps") \
+    """
+    Fetch NSW house suburbs from suburb_gaps, with postcodes looked up
+    from the listings table. Returns list of (suburb_name, postcode) tuples.
+    """
+    gaps = supabase.table("suburb_gaps") \
         .select("suburb") \
         .eq("state", "NSW") \
         .eq("property_type", "house") \
         .order("gap_percent", desc=True) \
         .execute()
-    return [r["suburb"] for r in (result.data or [])]
+    suburbs = [r["suburb"] for r in (gaps.data or [])]
+
+    # Look up representative postcode for each suburb from listings
+    result = []
+    for suburb in suburbs:
+        pc_result = supabase.table("listings") \
+            .select("postcode") \
+            .eq("suburb", suburb) \
+            .eq("state", "NSW") \
+            .not_.is_("postcode", "null") \
+            .limit(1) \
+            .execute()
+        postcode = pc_result.data[0]["postcode"] if pc_result.data else None
+        result.append((suburb, postcode))
+
+    return result
 
 
-def build_nsw_sold_url(suburb_name: str) -> str:
+def build_nsw_sold_url(suburb_name: str, postcode: int) -> str:
     """Build a Domain sold listings URL for an NSW suburb."""
     slug = suburb_name.lower().replace(" ", "-")
+    suffix = f"{slug}-nsw-{postcode}" if postcode else f"{slug}-nsw"
     return (
-        f"https://www.domain.com.au/sold-listings/{slug}-nsw/house/"
+        f"https://www.domain.com.au/sold-listings/{suffix}/house/"
         f"?bedrooms=3-5&price={NSW_PRICE_MIN}-{NSW_PRICE_MAX}&excludepricewithheld=1"
     )
 
@@ -431,9 +450,9 @@ def run_nsw_backfill(batch_size: int = 5):
     batches = [suburbs[i:i+batch_size] for i in range(0, len(suburbs), batch_size)]
 
     for batch_num, batch in enumerate(batches, 1):
-        print(f"[Batch {batch_num}/{len(batches)}] {', '.join(batch)}")
+        print(f"[Batch {batch_num}/{len(batches)}] {', '.join(s for s, _ in batch)}")
 
-        urls = [build_nsw_sold_url(s) for s in batch]
+        urls = [build_nsw_sold_url(s, pc) for s, pc in batch]
         for url in urls:
             print(f"  → {url}")
 
@@ -497,14 +516,14 @@ if __name__ == "__main__":
         if not suburbs:
             print("No NSW suburbs found in suburb_gaps")
         else:
-            suburb = suburbs[0]
-            url = build_nsw_sold_url(suburb)
-            print(f"Test suburb: {suburb}")
+            suburb_name, postcode = suburbs[0]
+            url = build_nsw_sold_url(suburb_name, postcode)
+            print(f"Test suburb: {suburb_name} (postcode: {postcode})")
             print(f"Test URL: {url}\n")
             results = fetch_sold_via_apify([url])
             print(f"Got {len(results)} results")
             if results:
-                sample = normalise_sold(results[0], {"name": suburb})
+                sample = normalise_sold(results[0], {"name": suburb_name})
                 sample["state"] = "NSW"
                 print("\nSample normalised listing:")
                 for k, v in sample.items():
