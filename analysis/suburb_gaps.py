@@ -501,8 +501,18 @@ def calculate_suburb_gap(suburb: str, state: str = "TAS") -> dict:
 # UPSERT SUBURB GAP
 # ─────────────────────────────────────────
 def upsert_suburb_gap(suburb: str, state: str, data: dict):
-    """Insert or update suburb gap data."""
+    """Insert or update suburb gap data. Drops suburbs with negative gap."""
     try:
+        if data["gap_percent"] < 0:
+            # Delete from DB if it exists — negative gap suburbs waste pipeline resources
+            supabase.table("suburb_gaps") \
+                .delete() \
+                .eq("suburb", suburb) \
+                .eq("state", state) \
+                .execute()
+            print(f"     ✗ Negative gap ({data['gap_percent']}%) — dropped from suburb_gaps")
+            return
+
         supabase.table("suburb_gaps").upsert({
             "suburb":               suburb,
             "state":                state,
