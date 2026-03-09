@@ -172,20 +172,24 @@ def normalise_apify(raw: dict, suburb: dict) -> dict:
     url = raw.get("url", "")
     domain_id = url.split("/")[-1] if url else ""
 
+    import re
+    prop_type = "unit" if re.match(r"^\d+/", full_address) else "house"
+
     return {
-        "domain_id":    domain_id,
-        "address":      full_address,
-        "suburb":       address_obj.get("suburb", suburb["name"]).title(),
-        "state":        address_obj.get("state", "TAS"),
-        "price":        price,
-        "bedrooms":     features.get("beds", None),
-        "bathrooms":    features.get("baths", None),
-        "land_size":    int(float(features.get("landSize") or 0)) or None,
-        "listing_url":  url,
-        "description":  "",   # Apify doesn't return description
-        "listed_date":  None, # Apify doesn't return listed date
-        "status":       "active",
-        "_photo_urls":  raw.get("images", [])
+        "domain_id":     domain_id,
+        "address":       full_address,
+        "suburb":        address_obj.get("suburb", suburb["name"]).title(),
+        "state":         address_obj.get("state", "TAS"),
+        "price":         price,
+        "bedrooms":      features.get("beds", None),
+        "bathrooms":     features.get("baths", None),
+        "land_size":     int(float(features.get("landSize") or 0)) or None,
+        "listing_url":   url,
+        "description":   "",   # Apify doesn't return description
+        "listed_date":   None, # Apify doesn't return listed date
+        "status":        "active",
+        "property_type": prop_type,
+        "_photo_urls":   raw.get("images", [])
     }
 
 def normalise_domain_api(raw: dict, suburb: dict) -> dict:
@@ -194,20 +198,25 @@ def normalise_domain_api(raw: dict, suburb: dict) -> dict:
     price_details = listing.get("priceDetails", {})
     property_details = listing.get("propertyDetails", {})
 
+    address = property_details.get("displayableAddress", "")
+    import re
+    prop_type = "unit" if re.match(r"^\d+/", address) else "house"
+
     return {
-        "domain_id":    str(listing.get("id", "")),
-        "address":      property_details.get("displayableAddress", ""),
-        "suburb":       suburb["name"],
-        "state":        "TAS",
-        "price":        price_details.get("price", 0),
-        "bedrooms":     property_details.get("bedrooms", None),
-        "bathrooms":    property_details.get("bathrooms", None),
-        "land_size":    property_details.get("landArea", None),
-        "listing_url":  listing.get("seoUrl", ""),
-        "description":  listing.get("description", ""),
-        "listed_date":  listing.get("dateListed", None),
-        "status":       "active",
-        "_photo_urls":  [m.get("url") for m in listing.get("media", []) if m.get("category") == "Image"]
+        "domain_id":     str(listing.get("id", "")),
+        "address":       address,
+        "suburb":        suburb["name"],
+        "state":         "TAS",
+        "price":         price_details.get("price", 0),
+        "bedrooms":      property_details.get("bedrooms", None),
+        "bathrooms":     property_details.get("bathrooms", None),
+        "land_size":     property_details.get("landArea", None),
+        "listing_url":   listing.get("seoUrl", ""),
+        "description":   listing.get("description", ""),
+        "listed_date":   listing.get("dateListed", None),
+        "status":        "active",
+        "property_type": prop_type,
+        "_photo_urls":   [m.get("url") for m in listing.get("media", []) if m.get("category") == "Image"]
     }
 
 # ─────────────────────────────────────────

@@ -86,20 +86,24 @@ def normalise_sold(raw: dict, suburb: dict) -> dict:
     url = raw.get("url", "")
     domain_id = f"sold_{url.split('/')[-1]}" if url else ""
 
+    import re
+    prop_type = "unit" if re.match(r"^\d+/", full_address) else "house"
+
     return {
-        "domain_id":    domain_id,
-        "address":      full_address,
-        "suburb":       address_obj.get("suburb", suburb["name"]).title(),
-        "state":        address_obj.get("state", "TAS"),
-        "price":        price,
-        "bedrooms":     features.get("beds", None),
-        "bathrooms":    features.get("baths", None),
-        "land_size":    int(features.get("landSize", None) or 0) or None,
-        "listing_url":  url,
-        "description":  "",
-        "listed_date":  None,
-        "status":       "sold",
-        "_photo_urls":  raw.get("images", [])
+        "domain_id":     domain_id,
+        "address":       full_address,
+        "suburb":        address_obj.get("suburb", suburb["name"]).title(),
+        "state":         address_obj.get("state", "TAS"),
+        "price":         price,
+        "bedrooms":      features.get("beds", None),
+        "bathrooms":     features.get("baths", None),
+        "land_size":     int(features.get("landSize", None) or 0) or None,
+        "listing_url":   url,
+        "description":   "",
+        "listed_date":   None,
+        "status":        "sold",
+        "property_type": prop_type,
+        "_photo_urls":   raw.get("images", [])
     }
 
 # ─────────────────────────────────────────

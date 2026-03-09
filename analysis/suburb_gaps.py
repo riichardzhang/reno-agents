@@ -10,13 +10,14 @@ from db.client import supabase
 # FETCH SOLD LISTINGS FOR SUBURB
 # ─────────────────────────────────────────
 def get_sold_listings(suburb: str, state: str = "TAS") -> list:
-    """Fetch all sold listings for a suburb."""
+    """Fetch sold house listings for a suburb (excludes units)."""
     result = supabase.table("listings") \
         .select("*") \
         .eq("suburb", suburb) \
         .eq("state", state) \
         .eq("status", "sold") \
         .gt("price", 0) \
+        .neq("property_type", "unit") \
         .execute()
     return result.data or []
 
