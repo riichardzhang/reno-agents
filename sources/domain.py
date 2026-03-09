@@ -222,32 +222,42 @@ def normalise_domain_api(raw: dict, suburb: dict) -> dict:
 # ─────────────────────────────────────────
 # NSW SUBURB URLS (top-gap suburbs only)
 # ─────────────────────────────────────────
-def get_nsw_active_urls(min_gap_pct: float = 20.0) -> list:
+NSW_DOMAIN_TYPES = {
+    "house": "house",
+    "unit":  "apartment-unit-flat",
+}
+
+def get_nsw_active_urls(min_gap_dollar: int = 150000) -> list:
     """
-    Query suburb_gaps for NSW house suburbs with gap >= min_gap_pct.
-    Returns Domain search URLs for each suburb.
+    Query suburb_gaps for NSW suburbs (houses and units) with gap_dollar >= min_gap_dollar.
+    Returns Domain search URLs for each suburb/property_type combination.
     """
     try:
         result = supabase.table("suburb_gaps") \
-            .select("suburb") \
+            .select("suburb, property_type") \
             .eq("state", "NSW") \
-            .eq("property_type", "house") \
-            .gte("gap_percent", min_gap_pct) \
-            .order("gap_percent", desc=True) \
+            .gte("gap_dollar", min_gap_dollar) \
+            .order("gap_dollar", desc=True) \
             .execute()
 
         urls = []
         for row in (result.data or []):
             suburb_slug = row["suburb"].lower().replace(" ", "-")
+            prop_type = row["property_type"]
+            domain_type = NSW_DOMAIN_TYPES.get(prop_type)
+            if not domain_type:
+                continue
             url = (
-                f"https://www.domain.com.au/sale/{suburb_slug}-nsw/house/"
+                f"https://www.domain.com.au/sale/{suburb_slug}-nsw/{domain_type}/"
                 f"?bedrooms={FILTERS['min_bedrooms']}-{FILTERS['max_bedrooms']}"
                 f"&price={FILTERS['min_price']}-{FILTERS['max_price']}"
                 f"&excludeunderoffer=1"
             )
             urls.append(url)
 
-        print(f"  → {len(urls)} NSW suburbs with gap >= {min_gap_pct}%")
+        houses = sum(1 for r in (result.data or []) if r["property_type"] == "house")
+        units  = sum(1 for r in (result.data or []) if r["property_type"] == "unit")
+        print(f"  → {len(urls)} NSW suburb/type combos with gap >= ${min_gap_dollar:,} ({houses} house, {units} unit)")
         return urls
     except Exception as e:
         print(f"  ✗ Error fetching NSW suburb gaps: {e}")
@@ -398,7 +408,7 @@ def fetch_new_listings(gap_suburbs: set = None) -> list:
                 tas_urls = ACTIVE_REGION_URLS
                 print(f"  → Apify: scraping 3 TAS regional URLs")
 
-            nsw_urls = get_nsw_active_urls(min_gap_pct=20.0)
+            nsw_urls = get_nsw_active_urls(min_gap_dollar=150000)
             search_urls = tas_urls + nsw_urls
             max_items = max(500, len(search_urls) * 30)
             print(f"  → Total URLs: {len(search_urls)} (TAS: {len(tas_urls)}, NSW: {len(nsw_urls)})")

@@ -396,17 +396,20 @@ def run_backfill_regions():
 # ─────────────────────────────────────────
 # NSW BACKFILL
 # ─────────────────────────────────────────
-def get_nsw_gap_suburbs() -> list:
+def get_nsw_gap_suburbs(limit: int = None) -> list:
     """
     Fetch NSW house suburbs from suburb_gaps, with postcodes looked up
     from the listings table. Returns list of (suburb_name, postcode) tuples.
+    Optionally limit to top N suburbs by gap %.
     """
-    gaps = supabase.table("suburb_gaps") \
+    query = supabase.table("suburb_gaps") \
         .select("suburb") \
         .eq("state", "NSW") \
         .eq("property_type", "house") \
-        .order("gap_percent", desc=True) \
-        .execute()
+        .order("gap_percent", desc=True)
+    if limit:
+        query = query.limit(limit)
+    gaps = query.execute()
     suburbs = [r["suburb"] for r in (gaps.data or [])]
 
     # Look up representative postcode for each suburb from listings
@@ -435,14 +438,14 @@ def build_nsw_sold_url(suburb_name: str, postcode: int) -> str:
     )
 
 
-def run_nsw_backfill(batch_size: int = 1):
+def run_nsw_backfill(batch_size: int = 1, limit: int = None):
     """
     Backfill sold listings for NSW suburbs in suburb_gaps.
     Fetches Domain sold listings via Apify for each suburb so that
     photos are available for Claude vision classification.
     """
-    suburbs = get_nsw_gap_suburbs()
-    print(f"Starting NSW backfill for {len(suburbs)} suburbs...\n")
+    suburbs = get_nsw_gap_suburbs(limit=limit)
+    print(f"Starting NSW backfill for {len(suburbs)} suburbs{f' (top {limit} by gap)' if limit else ''}...\n")
 
     total_inserted = 0
     total_skipped  = 0
@@ -499,8 +502,9 @@ if __name__ == "__main__":
     parser.add_argument("--test",    action="store_true", help="Test single suburb only")
     parser.add_argument("--run",     action="store_true", help="Run TAS suburb-by-suburb backfill")
     parser.add_argument("--regions", action="store_true", help="Run TAS region-based backfill (recommended)")
-    parser.add_argument("--nsw",      action="store_true", help="Run NSW suburb backfill (one-time initial load)")
-    parser.add_argument("--nsw-test", action="store_true", help="Test single NSW suburb before full run")
+    parser.add_argument("--nsw",       action="store_true", help="Run NSW suburb backfill")
+    parser.add_argument("--nsw-test",  action="store_true", help="Test single NSW suburb before full run")
+    parser.add_argument("--nsw-limit", type=int, default=None, help="Limit NSW backfill to top N suburbs by gap % (e.g. --nsw-limit 15)")
     args = parser.parse_args()
 
     if args.test:
@@ -510,7 +514,7 @@ if __name__ == "__main__":
     elif args.regions:
         run_backfill_regions()
     elif args.nsw:
-        run_nsw_backfill()
+        run_nsw_backfill(limit=args.nsw_limit)
     elif args.nsw_test:
         suburbs = get_nsw_gap_suburbs()
         if not suburbs:
@@ -535,5 +539,6 @@ if __name__ == "__main__":
         print("  python3 jobs/backfill.py --test      # test single TAS suburb")
         print("  python3 jobs/backfill.py --run       # TAS suburb-by-suburb backfill")
         print("  python3 jobs/backfill.py --regions   # TAS region-based backfill (recommended)")
-        print("  python3 jobs/backfill.py --nsw-test  # test single NSW suburb before full run")
-        print("  python3 jobs/backfill.py --nsw       # NSW suburb backfill (one-time)")
+        print("  python3 jobs/backfill.py --nsw-test         # test single NSW suburb before full run")
+        print("  python3 jobs/backfill.py --nsw               # NSW backfill (all gap suburbs)")
+        print("  python3 jobs/backfill.py --nsw --nsw-limit 15  # NSW backfill (top 15 by gap %)")
