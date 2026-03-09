@@ -480,7 +480,8 @@ if __name__ == "__main__":
     parser.add_argument("--test",    action="store_true", help="Test single suburb only")
     parser.add_argument("--run",     action="store_true", help="Run TAS suburb-by-suburb backfill")
     parser.add_argument("--regions", action="store_true", help="Run TAS region-based backfill (recommended)")
-    parser.add_argument("--nsw",     action="store_true", help="Run NSW suburb backfill (one-time initial load)")
+    parser.add_argument("--nsw",      action="store_true", help="Run NSW suburb backfill (one-time initial load)")
+    parser.add_argument("--nsw-test", action="store_true", help="Test single NSW suburb before full run")
     args = parser.parse_args()
 
     if args.test:
@@ -491,9 +492,29 @@ if __name__ == "__main__":
         run_backfill_regions()
     elif args.nsw:
         run_nsw_backfill()
+    elif args.nsw_test:
+        suburbs = get_nsw_gap_suburbs()
+        if not suburbs:
+            print("No NSW suburbs found in suburb_gaps")
+        else:
+            suburb = suburbs[0]
+            url = build_nsw_sold_url(suburb)
+            print(f"Test suburb: {suburb}")
+            print(f"Test URL: {url}\n")
+            results = fetch_sold_via_apify([url])
+            print(f"Got {len(results)} results")
+            if results:
+                sample = normalise_sold(results[0], {"name": suburb})
+                sample["state"] = "NSW"
+                print("\nSample normalised listing:")
+                for k, v in sample.items():
+                    if k != "_photo_urls":
+                        print(f"  {k}: {v}")
+                print(f"  photos: {len(results[0].get('images', []))} available")
     else:
         print("Usage:")
-        print("  python3 jobs/backfill.py --test      # test single suburb")
+        print("  python3 jobs/backfill.py --test      # test single TAS suburb")
         print("  python3 jobs/backfill.py --run       # TAS suburb-by-suburb backfill")
         print("  python3 jobs/backfill.py --regions   # TAS region-based backfill (recommended)")
+        print("  python3 jobs/backfill.py --nsw-test  # test single NSW suburb before full run")
         print("  python3 jobs/backfill.py --nsw       # NSW suburb backfill (one-time)")
