@@ -20,11 +20,12 @@ import traceback
 from datetime import datetime, timezone
 
 from jobs.backfill import run_backfill_regions
-from analysis.suburb_gaps import run_gap_analysis
+from analysis.suburb_gaps import run_gap_analysis, score_unclassified_sold_listings
 from alerts.email import send_suburb_gap_email
 from db.client import supabase
 
-DRY_RUN = False
+DRY_RUN   = False
+SKIP_VISION = False
 
 
 def log_run(stats: dict):
@@ -61,8 +62,17 @@ def run():
         traceback.print_exc()
         stats["errors"] += 1
 
-    # ── 2. Run gap analysis ──
-    print("\n[2/3] Running suburb gap analysis...\n")
+    # ── 2. Vision-score unclassified sold listings ──
+    print("\n[2/3] Vision-scoring unclassified sold listings...\n")
+    try:
+        score_unclassified_sold_listings(dry_run=(DRY_RUN or SKIP_VISION))
+    except Exception as e:
+        print(f"✗ Vision scoring failed: {e}")
+        traceback.print_exc()
+        stats["errors"] += 1
+
+    # ── 3. Run gap analysis ──
+    print("\n[3/4] Running suburb gap analysis...\n")
     results = {}
     try:
         results = run_gap_analysis(min_sales=5)
@@ -73,8 +83,8 @@ def run():
         traceback.print_exc()
         stats["errors"] += 1
 
-    # ── 3. Send gap report email ──
-    print("\n[3/3] Sending suburb gap report email...\n")
+    # ── 4. Send gap report email ──
+    print("\n[4/4] Sending suburb gap report email...\n")
     if results and not DRY_RUN:
         try:
             send_suburb_gap_email(results)
@@ -104,18 +114,24 @@ def run():
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Run suburb gap analysis and email report")
-    parser.add_argument("--dry-run",      action="store_true", help="Skip email and DB logging")
-    parser.add_argument("--skip-backfill", action="store_true", help="Skip sold data pull, just re-run analysis on existing data")
-    parser.add_argument("--gap-only",     action="store_true", help="Run gap analysis only (no backfill, no email)")
+    parser.add_argument("--dry-run",       action="store_true", help="Skip email and DB logging")
+    parser.add_argument("--skip-backfill", action="store_true", help="Skip Apify pull, re-run on existing data")
+    parser.add_argument("--skip-vision",   action="store_true", help="Skip Claude vision scoring of sold listing photos")
+    parser.add_argument("--gap-only",      action="store_true", help="Run gap analysis only (no backfill, no vision, no email)")
     args = parser.parse_args()
 
     if args.dry_run:
         DRY_RUN = True
         print("⚠ DRY RUN MODE — no emails or DB writes")
+    if args.skip_vision or args.dry_run:
+        SKIP_VISION = True
+        if args.skip_vision:
+            print("⚠ SKIP VISION — using cached/price-heuristic classification only")
 
     if args.gap_only:
         run_gap_analysis(min_sales=5)
     elif args.skip_backfill:
+        score_unclassified_sold_listings(dry_run=SKIP_VISION)
         results = run_gap_analysis(min_sales=5)
         if results and not DRY_RUN:
             send_suburb_gap_email(results)

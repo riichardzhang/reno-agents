@@ -160,24 +160,42 @@ def fetch_sold_via_apify(urls: list) -> list:
 # ─────────────────────────────────────────
 # INSERT SOLD LISTING
 # ─────────────────────────────────────────
-def insert_sold_listing(listing: dict) -> bool:
-    """Insert a sold listing, skip if already exists."""
+def insert_sold_listing(listing: dict, photo_urls: list = None) -> str:
+    """
+    Insert a sold listing, skip if already exists.
+    Returns the new listing's ID if inserted, None if skipped or on error.
+    """
     try:
-        # Check if exists
         existing = supabase.table("listings") \
             .select("id") \
             .eq("domain_id", listing["domain_id"]) \
             .execute()
 
         if existing.data:
-            return False
+            return None
 
-        supabase.table("listings").insert(listing).execute()
-        return True
+        result = supabase.table("listings").insert(listing).execute()
+        listing_id = result.data[0]["id"] if result.data else None
+
+        # Store first 8 photo URLs for later vision scoring
+        if listing_id and photo_urls:
+            for url in photo_urls[:8]:
+                try:
+                    supabase.table("photos").insert({
+                        "listing_id":       listing_id,
+                        "url":              url,
+                        "photo_base64":     None,
+                        "room_type":        None,
+                        "renovation_score": None,
+                    }).execute()
+                except Exception:
+                    pass
+
+        return listing_id
 
     except Exception as e:
         print(f"    ✗ Insert error: {e}")
-        return False
+        return None
 
 # ─────────────────────────────────────────
 # RUN BACKFILL
@@ -229,10 +247,9 @@ def run_backfill():
             if not listing["domain_id"] or not listing["price"]:
                 continue
 
-            # Remove photo URLs before inserting
-            listing.pop("_photo_urls", [])
+            photo_urls = listing.pop("_photo_urls", [])
 
-            if insert_sold_listing(listing):
+            if insert_sold_listing(listing, photo_urls):
                 batch_inserted += 1
             else:
                 total_skipped += 1
@@ -354,9 +371,9 @@ def run_backfill_regions():
             no_price += 1
             continue
 
-        listing.pop("_photo_urls", [])
+        photo_urls = listing.pop("_photo_urls", [])
 
-        if insert_sold_listing(listing):
+        if insert_sold_listing(listing, photo_urls):
             inserted += 1
         else:
             skipped += 1

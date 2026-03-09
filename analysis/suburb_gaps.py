@@ -26,35 +26,74 @@ def get_sold_listings(suburb: str, state: str = "TAS") -> list:
 # ─────────────────────────────────────────
 def classify_sold_listings(listings: list) -> dict:
     """
-    Classify sold listings as renovated/unrenovated using price per m².
-    Listings >15% above median price/m² = renovated
-    Listings >15% below median price/m² = unrenovated
+    Classify sold listings as renovated/unrenovated.
+    Uses Claude vision classification from DB where available,
+    falls back to price per m² heuristic for unclassified listings.
     """
-    # Filter to listings with valid land size and price
+    VISION_CLASSES = {"renovated", "unrenovated", "partial"}
+
+    renovated_prices   = []
+    unrenovated_prices = []
+    partial_prices     = []
+    unclassified       = []
+
+    vision_count = 0
+    for l in listings:
+        cls   = l.get("classification")
+        price = l.get("price", 0)
+        if not price:
+            continue
+        if cls in VISION_CLASSES:
+            vision_count += 1
+            if cls == "renovated":
+                renovated_prices.append(price)
+            elif cls == "unrenovated":
+                unrenovated_prices.append(price)
+            else:
+                partial_prices.append(price)
+        else:
+            unclassified.append(l)
+
+    if vision_count:
+        print(f"     → {vision_count} vision-classified, {len(unclassified)} using price heuristic")
+
+    # Price/m² fallback for unclassified listings
+    if unclassified:
+        fallback = _classify_by_ppm2(unclassified)
+        renovated_prices.extend(fallback["renovated"])
+        unrenovated_prices.extend(fallback["unrenovated"])
+        partial_prices.extend(fallback["partial"])
+
+    return {
+        "renovated":   renovated_prices,
+        "unrenovated": unrenovated_prices,
+        "partial":     partial_prices,
+        "uncertain":   [],
+    }
+
+
+def _classify_by_ppm2(listings: list) -> dict:
+    """Classify by price per m² ratio (internal fallback)."""
     valid = [
         l for l in listings
         if l.get("price", 0) > 0 and l.get("land_size", 0) and l["land_size"] > 50
     ]
 
-    # Fall back to price-only split if not enough land size data
     if len(valid) < len(listings) * 0.3:
-        print(f"     ⚠ Insufficient land size data — using price split")
         return classify_by_price_split(listings)
 
-    # Calculate price per m²
     for l in valid:
         l["_ppm2"] = l["price"] / l["land_size"]
 
     median_ppm2 = statistics.median([l["_ppm2"] for l in valid])
 
-    renovated_prices    = []
-    unrenovated_prices  = []
-    partial_prices      = []
+    renovated_prices   = []
+    unrenovated_prices = []
+    partial_prices     = []
 
     for l in valid:
-        ppm2 = l["_ppm2"]
+        ppm2  = l["_ppm2"]
         price = l["price"]
-
         if ppm2 >= median_ppm2 * 1.15:
             renovated_prices.append(price)
         elif ppm2 <= median_ppm2 * 0.85:
@@ -62,12 +101,166 @@ def classify_sold_listings(listings: list) -> dict:
         else:
             partial_prices.append(price)
 
-    return {
-        "renovated":    renovated_prices,
-        "unrenovated":  unrenovated_prices,
-        "partial":      partial_prices,
-        "uncertain":    []
-    }
+    return {"renovated": renovated_prices, "unrenovated": unrenovated_prices, "partial": partial_prices}
+
+
+# ─────────────────────────────────────────
+# VISION SCORING FOR SOLD LISTINGS
+# ─────────────────────────────────────────
+def score_unclassified_sold_listings(dry_run: bool = False):
+    """
+    Download and score photos for sold listings that don't yet have
+    a vision-based classification. Updates classification in DB.
+
+    Only processes listings that have photo URLs stored in the photos
+    table (from the backfill job). Skips already-classified listings.
+    """
+    import requests as req
+    import base64
+    from classifiers.photos import identify_room_from_url, identify_room_via_claude
+    from classifiers.vision import score_room, classify_from_scores
+
+    TARGET_ROOMS = {"kitchen", "bathroom"}
+
+    print("  Fetching unclassified sold listings with photos...")
+
+    # Find sold listings with pending photos (room_type IS NULL) and no classification
+    try:
+        pending = supabase.table("photos") \
+            .select("listing_id") \
+            .is_("room_type", "null") \
+            .execute()
+
+        listing_ids_with_photos = list({r["listing_id"] for r in (pending.data or [])})
+        if not listing_ids_with_photos:
+            print("  → No pending photos to process")
+            return
+    except Exception as e:
+        print(f"  ✗ Failed to fetch pending photos: {e}")
+        return
+
+    # Filter to only unclassified sold listings
+    try:
+        result = supabase.table("listings") \
+            .select("id, address, suburb") \
+            .in_("id", listing_ids_with_photos) \
+            .eq("status", "sold") \
+            .is_("classification", "null") \
+            .execute()
+        to_score = result.data or []
+    except Exception as e:
+        print(f"  ✗ Failed to fetch unclassified listings: {e}")
+        return
+
+    print(f"  → {len(to_score)} sold listings to vision-score")
+    if dry_run:
+        print("  [DRY RUN] Skipping vision scoring")
+        return
+
+    scored = 0
+    for listing in to_score:
+        listing_id = listing["id"]
+        address    = listing.get("address", listing_id)
+
+        # Fetch pending photo URLs for this listing
+        try:
+            photos = supabase.table("photos") \
+                .select("id, url") \
+                .eq("listing_id", listing_id) \
+                .is_("room_type", "null") \
+                .execute()
+            photo_records = photos.data or []
+        except Exception:
+            continue
+
+        if not photo_records:
+            continue
+
+        print(f"  ── {address}")
+
+        # Identify and download kitchen + bathroom photos
+        room_photos = {}          # room_type -> (photo_record_id, base64)
+        needs_claude  = []        # (record_id, url, b64) for unknown rooms
+
+        for i, rec in enumerate(photo_records):
+            if all(r in room_photos for r in TARGET_ROOMS):
+                break
+
+            url       = rec["url"]
+            record_id = rec["id"]
+            room_type = identify_room_from_url(url, i)
+
+            if room_type in TARGET_ROOMS and room_type not in room_photos:
+                try:
+                    resp = req.get(url, headers={
+                        "Referer": "https://www.domain.com.au",
+                        "User-Agent": "Mozilla/5.0"
+                    }, timeout=10)
+                    if resp.status_code == 200:
+                        b64 = base64.b64encode(resp.content).decode("utf-8")
+                        room_photos[room_type] = (record_id, b64)
+                except Exception:
+                    pass
+            elif room_type is None:
+                try:
+                    resp = req.get(url, headers={
+                        "Referer": "https://www.domain.com.au",
+                        "User-Agent": "Mozilla/5.0"
+                    }, timeout=10)
+                    if resp.status_code == 200:
+                        b64 = base64.b64encode(resp.content).decode("utf-8")
+                        needs_claude.append((record_id, url, b64))
+                except Exception:
+                    pass
+
+        # Use Claude to identify unknown photos if still missing rooms
+        missing = TARGET_ROOMS - set(room_photos.keys())
+        if missing and needs_claude:
+            for record_id, url, b64 in needs_claude:
+                if not missing:
+                    break
+                identified = identify_room_via_claude(b64)
+                if identified in missing:
+                    room_photos[identified] = (record_id, b64)
+                    missing.discard(identified)
+
+        if not room_photos:
+            print(f"     ⚠ No target room photos found — skipping")
+            continue
+
+        # Score each room
+        room_scores = {}
+        for room_type, (record_id, b64) in room_photos.items():
+            result = score_room(b64, room_type)
+            score  = result["score"]
+            room_scores[room_type] = score
+            print(f"     → {room_type.capitalize()}: {score}/10")
+
+            # Cache score and room_type on the photo record
+            try:
+                supabase.table("photos").update({
+                    "room_type":        room_type,
+                    "photo_base64":     b64,
+                    "renovation_score": score,
+                }).eq("id", record_id).execute()
+            except Exception:
+                pass
+
+        # Classify and update the listing
+        classification = classify_from_scores(room_scores)
+        avg_score      = round(sum(room_scores.values()) / len(room_scores), 1)
+        print(f"     → {avg_score:.1f}/10 — {classification.upper()}")
+
+        try:
+            supabase.table("listings").update({
+                "classification":   classification,
+                "renovation_score": avg_score,
+            }).eq("id", listing_id).execute()
+            scored += 1
+        except Exception as e:
+            print(f"     ✗ DB update failed: {e}")
+
+    print(f"  ✓ Vision-scored {scored} sold listings")
 
 
 def classify_by_price_split(listings: list) -> dict:
