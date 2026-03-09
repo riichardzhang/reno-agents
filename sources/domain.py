@@ -10,7 +10,7 @@ from config import (
     DOMAIN_CLIENT_ID, DOMAIN_CLIENT_SECRET,
     APIFY_API_TOKEN, FILTERS, ALL_SUBURBS, SOURCES
 )
-from db.client import insert_listing, listing_exists
+from db.client import insert_listing, listing_exists, supabase
 
 # ─────────────────────────────────────────
 # TOKEN MANAGER (Domain API only)
@@ -220,6 +220,41 @@ def normalise_domain_api(raw: dict, suburb: dict) -> dict:
     }
 
 # ─────────────────────────────────────────
+# NSW SUBURB URLS (top-gap suburbs only)
+# ─────────────────────────────────────────
+def get_nsw_active_urls(min_gap_pct: float = 20.0) -> list:
+    """
+    Query suburb_gaps for NSW house suburbs with gap >= min_gap_pct.
+    Returns Domain search URLs for each suburb.
+    """
+    try:
+        result = supabase.table("suburb_gaps") \
+            .select("suburb") \
+            .eq("state", "NSW") \
+            .eq("property_type", "house") \
+            .gte("gap_percent", min_gap_pct) \
+            .order("gap_percent", desc=True) \
+            .execute()
+
+        urls = []
+        for row in (result.data or []):
+            suburb_slug = row["suburb"].lower().replace(" ", "-")
+            url = (
+                f"https://www.domain.com.au/sale/{suburb_slug}-nsw/house/"
+                f"?bedrooms={FILTERS['min_bedrooms']}-{FILTERS['max_bedrooms']}"
+                f"&price={FILTERS['min_price']}-{FILTERS['max_price']}"
+                f"&excludeunderoffer=1"
+            )
+            urls.append(url)
+
+        print(f"  → {len(urls)} NSW suburbs with gap >= {min_gap_pct}%")
+        return urls
+    except Exception as e:
+        print(f"  ✗ Error fetching NSW suburb gaps: {e}")
+        return []
+
+
+# ─────────────────────────────────────────
 # REGIONAL URLS FOR ACTIVE LISTINGS
 # ─────────────────────────────────────────
 ACTIVE_REGION_URLS = [
@@ -351,19 +386,23 @@ def fetch_new_listings(gap_suburbs: set = None) -> list:
                         all_new.append(stored_listing)
                 time.sleep(0.5)  # gentle rate limiting for Domain API
         else:
-            # Apify: build suburb-specific URLs for only gap suburbs (or fall back to regional)
+            # Apify: TAS regional URLs + NSW top-gap suburb URLs
             if gap_suburbs:
                 target_suburbs = [
                     s for s in ALL_SUBURBS
                     if s["name"].title() in gap_suburbs
                 ]
-                search_urls = [build_search_url(s) for s in target_suburbs]
-                print(f"  → Apify: scraping {len(search_urls)} gap suburbs (vs 3 regional)")
+                tas_urls = [build_search_url(s) for s in target_suburbs]
+                print(f"  → Apify: scraping {len(tas_urls)} TAS gap suburbs")
             else:
-                search_urls = ACTIVE_REGION_URLS
-                print(f"  → Apify: scraping 3 regional URLs")
+                tas_urls = ACTIVE_REGION_URLS
+                print(f"  → Apify: scraping 3 TAS regional URLs")
 
-            max_items = min(len(search_urls) * 50, 500) if gap_suburbs else 500
+            nsw_urls = get_nsw_active_urls(min_gap_pct=20.0)
+            search_urls = tas_urls + nsw_urls
+            max_items = max(500, len(search_urls) * 30)
+            print(f"  → Total URLs: {len(search_urls)} (TAS: {len(tas_urls)}, NSW: {len(nsw_urls)})")
+
             raw_listings = _apify_run(search_urls, max_items=max_items)
             print(f"\n  → Got {len(raw_listings)} raw results")
 
@@ -371,7 +410,8 @@ def fetch_new_listings(gap_suburbs: set = None) -> list:
             skip_count = 0
             for raw in raw_listings:
                 address_obj = raw.get("address", {})
-                if address_obj.get("state", "").upper() != "TAS":
+                state = address_obj.get("state", "").upper()
+                if state not in ("TAS", "NSW"):
                     skip_count += 1
                     continue
 

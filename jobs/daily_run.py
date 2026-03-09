@@ -46,11 +46,11 @@ SKIP_INSIGHTS = False       # Set True to use cached verdicts instead of calling
 # ─────────────────────────────────────────
 def load_suburb_gaps() -> dict:
     try:
-        result = supabase.table("suburb_gaps").select("*").execute()
+        result = supabase.table("suburb_gaps").select("*").eq("property_type", "house").execute()
         gaps = {}
         for row in result.data:
-            suburb = row["suburb"].strip().title()
-            gaps[suburb] = row
+            key = (row["suburb"].strip().title(), row["state"])
+            gaps[key] = row
         print(f"✓ Loaded gap data for {len(gaps)} suburbs")
         return gaps
     except Exception as e:
@@ -58,8 +58,8 @@ def load_suburb_gaps() -> dict:
         return {}
 
 
-def get_gap_for_suburb(suburb: str, gaps: dict) -> Optional[dict]:
-    return gaps.get(suburb.strip().title())
+def get_gap_for_suburb(suburb: str, gaps: dict, state: str = "TAS") -> Optional[dict]:
+    return gaps.get((suburb.strip().title(), state))
 
 
 # ─────────────────────────────────────────
@@ -83,7 +83,7 @@ def build_cached_analysis(listing: dict, gap_data: dict) -> Optional[dict]:
     margin_pct    = float(listing.get("margin_percent") or 0)
     cached_max_offer = listing.get("max_offer_price") or 0
 
-    gap = get_gap_for_suburb(suburb, gap_data)
+    gap = get_gap_for_suburb(suburb, gap_data, listing.get("state", "TAS"))
     arv = float(gap.get("renovated_median", 0)) if gap else asking_price * 1.25
 
     reno_cost, reno_tier = estimate_reno_cost(avg_reno_score)
@@ -135,13 +135,14 @@ def process_listing(listing: dict, suburb_gaps: dict, skip_property_style: bool 
     listing_id = listing.get("id")
     address = listing.get("address", "Unknown")
     suburb = listing.get("suburb", "")
+    state  = listing.get("state", "TAS")
     price = listing.get("price", 0)
 
     print(f"\n  ── {address} ──")
-    print(f"     ${price:,}  |  {suburb}")
+    print(f"     ${price:,}  |  {suburb}, {state}")
 
     # ── Step 1: Check suburb gap ──
-    gap_data = get_gap_for_suburb(suburb, suburb_gaps)
+    gap_data = get_gap_for_suburb(suburb, suburb_gaps, state)
     if not gap_data:
         print(f"     ⚠ No gap data for {suburb} — skipping")
         return None
