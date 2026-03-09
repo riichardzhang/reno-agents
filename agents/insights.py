@@ -170,7 +170,7 @@ def build_prompt(listing: dict, suburb_gap: Optional[dict], feasibility: dict, p
         gap_section = f"\nSUBURB GAP DATA: Not available for {suburb}\n"
 
     f = feasibility
-    prompt = f"""You are a property investment analyst specialising in renovation arbitrage in Tasmania, Australia.
+    prompt = f"""You are a property investment analyst specialising in renovation arbitrage in Australia.
 
 Analyse this listing and provide a structured investment assessment.
 

@@ -450,22 +450,8 @@ def fetch_new_listings(gap_suburbs: set = None) -> list:
 
                 suburb_name = address_obj.get("suburb", "").title()
 
-                # For NSW: filter to target suburbs only (postcodes can be shared across suburbs)
-                # Also enforce expected property_type since Apify ignores the URL path filter
-                if state == "NSW":
-                    if suburb_name not in nsw_suburb_type_map:
-                        skip_count += 1
-                        continue
-
                 suburb = {"name": suburb_name}
                 listing = normalise_apify(raw, suburb)
-
-                # For NSW: enforce expected property_type (Apify ignores URL path filter)
-                if state == "NSW":
-                    expected_type = nsw_suburb_type_map.get(suburb_name)
-                    if expected_type and listing.get("property_type") != expected_type:
-                        skip_count += 1
-                        continue
 
                 # Skip price-withheld listings
                 if not listing["price"]:
