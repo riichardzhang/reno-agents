@@ -458,24 +458,7 @@ def calculate_suburb_gap(suburb: str, state: str = "TAS", property_type: str = "
     unrenovated_median  = safe_median(unrenovated_prices)
 
     if not renovated_median or not unrenovated_median:
-        print(f"  ⚠ Insufficient classified data for {suburb} — "
-              f"need 3+ renovated AND 3+ unrenovated sales")
-
-        # Fall back to overall median if we can't split
-        all_prices = [l["price"] for l in listings if l.get("price")]
-        overall_median = safe_median(all_prices)
-
-        if overall_median:
-            # Store with low confidence
-            upsert_suburb_gap(suburb, state, property_type, {
-                "unrenovated_median":   int(overall_median * 0.85),
-                "renovated_median":     int(overall_median * 1.15),
-                "gap_dollar":           int(overall_median * 0.30),
-                "gap_percent":          30.0,
-                "sample_size":          len(listings),
-                "confidence":           "very low (fallback)"
-            })
-            return None
+        print(f"  ⚠ Insufficient classified data for {suburb} — skipping (need 3+ renovated AND 3+ unrenovated)")
         return None
 
     gap_dollar  = renovated_median - unrenovated_median
