@@ -360,10 +360,14 @@ def send_suburb_gap_email(results: dict) -> bool:
         from zoneinfo import ZoneInfo
         sydney_now = datetime.now(ZoneInfo("Australia/Sydney"))
         date_str = sydney_now.strftime("%A %d %B")
-        subject = f"📊 Suburb Gap Report — {date_str} — {len(results)} suburbs"
 
-        # Sort by gap % descending
-        sorted_results = sorted(results.items(), key=lambda x: -x[1].get("gap_percent", 0))
+        # Filter to suburbs with 10%+ gap and sort descending
+        sorted_results = sorted(
+            [(s, d) for s, d in results.items() if d.get("gap_percent", 0) >= 10],
+            key=lambda x: -x[1].get("gap_percent", 0)
+        )
+
+        subject = f"📊 Suburb Gap Report — {date_str} — {len(sorted_results)} suburbs"
 
         rows_html = ""
         for suburb, data in sorted_results:
