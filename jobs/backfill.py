@@ -8,6 +8,9 @@ import time
 from config import APIFY_API_TOKEN, SOURCES
 from db.client import supabase
 
+NSW_PRICE_MIN = 300000
+NSW_PRICE_MAX = 650000
+
 # ─────────────────────────────────────────
 # KEY SUBURBS TO BACKFILL
 # Priority suburbs only — enough for reliable medians
@@ -390,12 +393,94 @@ def run_backfill_regions():
     print(f"Skipped (no price): {no_price}")
 
 
+# ─────────────────────────────────────────
+# NSW BACKFILL
+# ─────────────────────────────────────────
+def get_nsw_gap_suburbs() -> list:
+    """Fetch NSW house suburbs from suburb_gaps table."""
+    result = supabase.table("suburb_gaps") \
+        .select("suburb") \
+        .eq("state", "NSW") \
+        .eq("property_type", "house") \
+        .order("gap_percent", desc=True) \
+        .execute()
+    return [r["suburb"] for r in (result.data or [])]
+
+
+def build_nsw_sold_url(suburb_name: str) -> str:
+    """Build a Domain sold listings URL for an NSW suburb."""
+    slug = suburb_name.lower().replace(" ", "-")
+    return (
+        f"https://www.domain.com.au/sold-listings/{slug}-nsw/house/"
+        f"?bedrooms=3-5&price={NSW_PRICE_MIN}-{NSW_PRICE_MAX}&excludepricewithheld=1"
+    )
+
+
+def run_nsw_backfill(batch_size: int = 5):
+    """
+    Backfill sold listings for NSW suburbs in suburb_gaps.
+    Fetches Domain sold listings via Apify for each suburb so that
+    photos are available for Claude vision classification.
+    """
+    suburbs = get_nsw_gap_suburbs()
+    print(f"Starting NSW backfill for {len(suburbs)} suburbs...\n")
+
+    total_inserted = 0
+    total_skipped  = 0
+
+    batches = [suburbs[i:i+batch_size] for i in range(0, len(suburbs), batch_size)]
+
+    for batch_num, batch in enumerate(batches, 1):
+        print(f"[Batch {batch_num}/{len(batches)}] {', '.join(batch)}")
+
+        urls = [build_nsw_sold_url(s) for s in batch]
+        for url in urls:
+            print(f"  → {url}")
+
+        raw_results = fetch_sold_via_apify(urls)
+        print(f"  → Got {len(raw_results)} raw results")
+
+        batch_inserted = 0
+        for raw in raw_results:
+            address_obj = raw.get("address", {})
+            if address_obj.get("state", "").upper() != "NSW":
+                continue
+
+            suburb_name = address_obj.get("suburb", "").title()
+            suburb = {"name": suburb_name}
+            listing = normalise_sold(raw, suburb)
+            listing["state"] = "NSW"
+
+            if not listing["domain_id"] or not listing["price"]:
+                continue
+            if not (NSW_PRICE_MIN <= listing["price"] <= NSW_PRICE_MAX):
+                continue
+
+            photo_urls = listing.pop("_photo_urls", [])
+
+            if insert_sold_listing(listing, photo_urls):
+                batch_inserted += 1
+            else:
+                total_skipped += 1
+
+        total_inserted += batch_inserted
+        print(f"  ✓ Inserted {batch_inserted} NSW sold listings\n")
+        time.sleep(2)
+
+    print(f"{'='*50}")
+    print(f"NSW BACKFILL COMPLETE")
+    print(f"{'='*50}")
+    print(f"Total inserted: {total_inserted}")
+    print(f"Total skipped:  {total_skipped}")
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--test",    action="store_true", help="Test single suburb only")
-    parser.add_argument("--run",     action="store_true", help="Run suburb-by-suburb backfill")
-    parser.add_argument("--regions", action="store_true", help="Run region-based backfill (recommended)")
+    parser.add_argument("--run",     action="store_true", help="Run TAS suburb-by-suburb backfill")
+    parser.add_argument("--regions", action="store_true", help="Run TAS region-based backfill (recommended)")
+    parser.add_argument("--nsw",     action="store_true", help="Run NSW suburb backfill (one-time initial load)")
     args = parser.parse_args()
 
     if args.test:
@@ -404,8 +489,11 @@ if __name__ == "__main__":
         run_backfill()
     elif args.regions:
         run_backfill_regions()
+    elif args.nsw:
+        run_nsw_backfill()
     else:
         print("Usage:")
         print("  python3 jobs/backfill.py --test      # test single suburb")
-        print("  python3 jobs/backfill.py --run       # suburb-by-suburb backfill")
-        print("  python3 jobs/backfill.py --regions   # region-based backfill (recommended)")
+        print("  python3 jobs/backfill.py --run       # TAS suburb-by-suburb backfill")
+        print("  python3 jobs/backfill.py --regions   # TAS region-based backfill (recommended)")
+        print("  python3 jobs/backfill.py --nsw       # NSW suburb backfill (one-time)")
