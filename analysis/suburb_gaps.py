@@ -537,22 +537,30 @@ def run_gap_analysis(min_sales: int = 5) -> dict:
     Run gap analysis for all suburbs with enough sold data.
     Only processes suburbs with min_sales or more sold listings.
     """
-    # Get all suburbs with sold listings
-    result = supabase.table("listings") \
-        .select("suburb, state") \
-        .eq("status", "sold") \
-        .gt("price", 0) \
-        .execute()
+    # Get all suburbs with sold house listings (exclude units)
+    # Fetch in pages to avoid the default 1000-row Supabase limit
+    suburb_counts = {}
+    page_size = 1000
+    offset = 0
+    while True:
+        result = supabase.table("listings") \
+            .select("suburb, state") \
+            .eq("status", "sold") \
+            .gt("price", 0) \
+            .neq("property_type", "unit") \
+            .range(offset, offset + page_size - 1) \
+            .execute()
+        rows = result.data or []
+        for row in rows:
+            key = (row["suburb"], row["state"])
+            suburb_counts[key] = suburb_counts.get(key, 0) + 1
+        if len(rows) < page_size:
+            break
+        offset += page_size
 
-    if not result.data:
+    if not suburb_counts:
         print("No sold listings found")
         return {}
-
-    # Count per suburb
-    suburb_counts = {}
-    for row in result.data:
-        key = (row["suburb"], row["state"])
-        suburb_counts[key] = suburb_counts.get(key, 0) + 1
 
     # Filter to suburbs with enough data
     eligible = {k: v for k, v in suburb_counts.items() if v >= min_sales}
