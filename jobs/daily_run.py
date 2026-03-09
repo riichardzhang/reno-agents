@@ -37,7 +37,8 @@ from db.client import supabase, get_photos_for_listing, update_listing
 MIN_GAP_PCT = 20.0          # Only run insights agent on suburbs with 20%+ gap
 ALERT_VERDICTS = {"GO", "WATCH"}
 DRY_RUN = False
-SKIP_FETCH = False          # Set True to skip Apify and only re-check existing DB listings             # Set True to skip emails and DB logging
+SKIP_FETCH = False          # Set True to skip Apify and only re-check existing DB listings
+SKIP_INSIGHTS = False       # Set True to use cached verdicts instead of calling Claude Sonnet
 
 
 # ─────────────────────────────────────────
@@ -59,6 +60,72 @@ def load_suburb_gaps() -> dict:
 
 def get_gap_for_suburb(suburb: str, gaps: dict) -> Optional[dict]:
     return gaps.get(suburb.strip().title())
+
+
+# ─────────────────────────────────────────
+# CACHED ANALYSIS (no Claude call)
+# ─────────────────────────────────────────
+def build_cached_analysis(listing: dict, gap_data: dict) -> Optional[dict]:
+    """
+    Build a full analysis dict from cached DB values without calling Claude.
+    Uses preflight_feasibility() math + cached verdict/margin from DB.
+    Only returns a result if the listing has a cached GO or WATCH verdict.
+    """
+    from agents.insights import preflight_feasibility, estimate_reno_cost
+
+    verdict = listing.get("verdict")
+    if verdict not in ALERT_VERDICTS:
+        return None
+
+    suburb        = listing.get("suburb", "")
+    asking_price  = float(listing.get("price", 0))
+    avg_reno_score = float(listing.get("avg_reno_score") or 2.5)
+    margin_pct    = float(listing.get("margin_percent") or 0)
+    cached_max_offer = listing.get("max_offer_price") or 0
+
+    gap = get_gap_for_suburb(suburb, gap_data)
+    arv = float(gap.get("renovated_median", 0)) if gap else asking_price * 1.25
+
+    reno_cost, reno_tier = estimate_reno_cost(avg_reno_score)
+    pf = preflight_feasibility(asking_price, arv, reno_cost)
+    pf["reno_tier"] = reno_tier
+
+    max_offer = cached_max_offer or pf["max_offer_price"]
+
+    def make_scenario(arv_factor, reno_factor):
+        s_pf = preflight_feasibility(asking_price, int(arv * arv_factor), int(reno_cost * reno_factor))
+        return {
+            "reno_cost":  int(reno_cost * reno_factor),
+            "arv":        int(arv * arv_factor),
+            "profit":     s_pf["actual_profit_at_asking"],
+            "margin_pct": s_pf["actual_margin_pct"],
+        }
+
+    return {
+        "verdict":        verdict,
+        "arv_estimate":   int(arv),
+        "arv_confidence": "medium",
+        "red_flags":      [],
+        "feasibility": {
+            "max_bid_above_asking": int(max_offer - asking_price),
+            "profit_at_asking":     pf["actual_profit_at_asking"],
+            "margin_pct":           margin_pct,
+            "verdict_at_asking":    "viable" if margin_pct >= 10 else "borderline",
+        },
+        "scenarios": {
+            "best":  make_scenario(1.10, 0.80),
+            "base":  make_scenario(1.00, 1.00),
+            "worst": make_scenario(0.90, 1.20),
+        },
+        "_meta": {
+            "listing_id":            listing.get("id"),
+            "address":               listing.get("address"),
+            "suburb":                suburb,
+            "asking_price":          asking_price,
+            "preflight_feasibility": {**pf, "max_offer_price": int(max_offer)},
+            "model":                 "cached",
+        },
+    }
 
 
 # ─────────────────────────────────────────
@@ -157,8 +224,15 @@ def process_listing(listing: dict, suburb_gaps: dict, skip_property_style: bool 
 
     # ── Step 6: Insights agent ──
     try:
-        print(f"     → Running insights agent...")
-        analysis = analyse_listing(listing, gap_data={suburb: gap_data}, property_style=property_style)
+        if SKIP_INSIGHTS:
+            print(f"     → Using cached verdict (--skip-insights)")
+            analysis = build_cached_analysis(listing, suburb_gaps)
+            if not analysis:
+                print(f"     ⚠ No cached GO/WATCH verdict — skipping")
+                return None
+        else:
+            print(f"     → Running insights agent...")
+            analysis = analyse_listing(listing, gap_data={suburb: gap_data}, property_style=property_style)
         verdict = analysis.get("verdict", "PASS")
         margin = analysis.get("feasibility", {}).get("margin_pct", 0)
         max_offer = analysis.get("_meta", {}).get("preflight_feasibility", {}).get("max_offer_price", 0)
@@ -407,9 +481,10 @@ def run():
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Run the daily property pipeline")
-    parser.add_argument("--dry-run",    action="store_true", help="Skip emails and DB logging")
-    parser.add_argument("--skip-fetch", action="store_true", help="Skip Apify fetch, only re-check existing DB listings")
-    parser.add_argument("--gap-min",    type=float, default=MIN_GAP_PCT,
+    parser.add_argument("--dry-run",       action="store_true", help="Skip emails and DB logging")
+    parser.add_argument("--skip-fetch",    action="store_true", help="Skip Apify fetch, only re-check existing DB listings")
+    parser.add_argument("--skip-insights", action="store_true", help="Use cached verdicts instead of calling Claude Sonnet")
+    parser.add_argument("--gap-min",       type=float, default=MIN_GAP_PCT,
                         help=f"Min suburb gap %% to trigger analysis (default: {MIN_GAP_PCT})")
     args = parser.parse_args()
 
@@ -419,5 +494,8 @@ if __name__ == "__main__":
     if args.skip_fetch:
         SKIP_FETCH = True
         print("⚠ SKIP FETCH — re-checking existing DB listings only")
+    if args.skip_insights:
+        SKIP_INSIGHTS = True
+        print("⚠ SKIP INSIGHTS — using cached verdicts, no Claude Sonnet calls")
     MIN_GAP_PCT = args.gap_min
     run()
