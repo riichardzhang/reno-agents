@@ -227,11 +227,12 @@ NSW_DOMAIN_TYPES = {
     "unit":  "apartment-unit-flat",
 }
 
-def get_nsw_active_urls(min_gap_dollar: int = 150000) -> list:
+def get_nsw_active_urls(min_gap_dollar: int = 150000) -> tuple:
     """
     Query suburb_gaps for NSW suburbs (houses and units) with gap_dollar >= min_gap_dollar.
-    Returns Domain search URLs for each suburb/property_type combination.
+    Returns (urls, suburb_property_type_map) where map is {suburb_name: property_type}.
     Postcodes are looked up from listings table (required by Domain URLs).
+    Units use bedrooms=2-5; houses use bedrooms=3-5.
     """
     try:
         result = supabase.table("suburb_gaps") \
@@ -242,7 +243,7 @@ def get_nsw_active_urls(min_gap_dollar: int = 150000) -> list:
             .execute()
 
         urls = []
-        target_suburb_names = set()
+        suburb_type_map = {}  # suburb_name -> property_type for filtering after fetch
         houses = 0
         units  = 0
         for row in (result.data or []):
@@ -265,24 +266,25 @@ def get_nsw_active_urls(min_gap_dollar: int = 150000) -> list:
                 continue
 
             suburb_slug = suburb_name.lower().replace(" ", "-")
+            min_beds = FILTERS['min_bedrooms'] if prop_type == "house" else 2
             url = (
                 f"https://www.domain.com.au/sale/{suburb_slug}-nsw-{postcode}/{domain_type}/"
-                f"?bedrooms={FILTERS['min_bedrooms']}-{FILTERS['max_bedrooms']}"
+                f"?bedrooms={min_beds}-{FILTERS['max_bedrooms']}"
                 f"&price={FILTERS['min_price']}-{FILTERS['max_price']}"
                 f"&excludeunderoffer=1"
             )
             urls.append(url)
-            target_suburb_names.add(suburb_name)
+            suburb_type_map[suburb_name] = prop_type
             if prop_type == "house":
                 houses += 1
             else:
                 units += 1
 
         print(f"  → {len(urls)} NSW suburb/type combos with gap >= ${min_gap_dollar:,} ({houses} house, {units} unit)")
-        return urls, target_suburb_names
+        return urls, suburb_type_map
     except Exception as e:
         print(f"  ✗ Error fetching NSW suburb gaps: {e}")
-        return [], set()
+        return [], {}
 
 
 # ─────────────────────────────────────────
@@ -429,7 +431,7 @@ def fetch_new_listings(gap_suburbs: set = None) -> list:
                 tas_urls = ACTIVE_REGION_URLS
                 print(f"  → Apify: scraping 3 TAS regional URLs")
 
-            nsw_urls, nsw_target_suburbs = get_nsw_active_urls(min_gap_dollar=150000)
+            nsw_urls, nsw_suburb_type_map = get_nsw_active_urls(min_gap_dollar=150000)
             search_urls = tas_urls + nsw_urls
             max_items = max(500, len(search_urls) * 30)
             print(f"  → Total URLs: {len(search_urls)} (TAS: {len(tas_urls)}, NSW: {len(nsw_urls)})")
@@ -449,12 +451,21 @@ def fetch_new_listings(gap_suburbs: set = None) -> list:
                 suburb_name = address_obj.get("suburb", "").title()
 
                 # For NSW: filter to target suburbs only (postcodes can be shared across suburbs)
-                if state == "NSW" and suburb_name not in nsw_target_suburbs:
-                    skip_count += 1
-                    continue
+                # Also enforce expected property_type since Apify ignores the URL path filter
+                if state == "NSW":
+                    if suburb_name not in nsw_suburb_type_map:
+                        skip_count += 1
+                        continue
 
                 suburb = {"name": suburb_name}
                 listing = normalise_apify(raw, suburb)
+
+                # For NSW: enforce expected property_type (Apify ignores URL path filter)
+                if state == "NSW":
+                    expected_type = nsw_suburb_type_map.get(suburb_name)
+                    if expected_type and listing.get("property_type") != expected_type:
+                        skip_count += 1
+                        continue
 
                 # Skip price-withheld listings
                 if not listing["price"]:
