@@ -36,7 +36,8 @@ from db.client import supabase, get_photos_for_listing, update_listing
 # ─────────────────────────────────────────
 MIN_GAP_PCT = 20.0          # Only run insights agent on suburbs with 20%+ gap
 ALERT_VERDICTS = {"GO", "WATCH"}
-DRY_RUN = False             # Set True to skip emails and DB logging
+DRY_RUN = False
+SKIP_FETCH = False          # Set True to skip Apify and only re-check existing DB listings             # Set True to skip emails and DB logging
 
 
 # ─────────────────────────────────────────
@@ -221,14 +222,18 @@ def run():
         return
 
     # ── 2. Fetch new listings ──
-    print("\n[1/3] Fetching new listings via Apify...\n")
-    try:
-        new_listings = fetch_new_listings()
-        stats["fetched"] = len(new_listings)
-        print(f"\n→ {len(new_listings)} new listings to process")
-    except Exception as e:
-        print(f"✗ Failed to fetch listings: {e}")
-        return
+    if SKIP_FETCH:
+        print("\n[1/3] Skipping Apify fetch (--skip-fetch)\n")
+        new_listings = []
+    else:
+        print("\n[1/3] Fetching new listings via Apify...\n")
+        try:
+            new_listings = fetch_new_listings()
+            stats["fetched"] = len(new_listings)
+            print(f"\n→ {len(new_listings)} new listings to process")
+        except Exception as e:
+            print(f"✗ Failed to fetch listings: {e}")
+            return
 
     if not new_listings:
         print("\n✓ No new listings today — skipping to re-check step")
@@ -402,13 +407,17 @@ def run():
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Run the daily property pipeline")
-    parser.add_argument("--dry-run", action="store_true", help="Skip emails and DB logging")
-    parser.add_argument("--gap-min", type=float, default=MIN_GAP_PCT,
+    parser.add_argument("--dry-run",    action="store_true", help="Skip emails and DB logging")
+    parser.add_argument("--skip-fetch", action="store_true", help="Skip Apify fetch, only re-check existing DB listings")
+    parser.add_argument("--gap-min",    type=float, default=MIN_GAP_PCT,
                         help=f"Min suburb gap %% to trigger analysis (default: {MIN_GAP_PCT})")
     args = parser.parse_args()
 
     if args.dry_run:
         DRY_RUN = True
         print("⚠ DRY RUN MODE — no emails or DB writes")
+    if args.skip_fetch:
+        SKIP_FETCH = True
+        print("⚠ SKIP FETCH — re-checking existing DB listings only")
     MIN_GAP_PCT = args.gap_min
     run()
