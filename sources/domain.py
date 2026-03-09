@@ -242,6 +242,7 @@ def get_nsw_active_urls(min_gap_dollar: int = 150000) -> list:
             .execute()
 
         urls = []
+        target_suburb_names = set()
         houses = 0
         units  = 0
         for row in (result.data or []):
@@ -271,16 +272,17 @@ def get_nsw_active_urls(min_gap_dollar: int = 150000) -> list:
                 f"&excludeunderoffer=1"
             )
             urls.append(url)
+            target_suburb_names.add(suburb_name)
             if prop_type == "house":
                 houses += 1
             else:
                 units += 1
 
         print(f"  → {len(urls)} NSW suburb/type combos with gap >= ${min_gap_dollar:,} ({houses} house, {units} unit)")
-        return urls
+        return urls, target_suburb_names
     except Exception as e:
         print(f"  ✗ Error fetching NSW suburb gaps: {e}")
-        return []
+        return [], set()
 
 
 # ─────────────────────────────────────────
@@ -427,7 +429,7 @@ def fetch_new_listings(gap_suburbs: set = None) -> list:
                 tas_urls = ACTIVE_REGION_URLS
                 print(f"  → Apify: scraping 3 TAS regional URLs")
 
-            nsw_urls = get_nsw_active_urls(min_gap_dollar=150000)
+            nsw_urls, nsw_target_suburbs = get_nsw_active_urls(min_gap_dollar=150000)
             search_urls = tas_urls + nsw_urls
             max_items = max(500, len(search_urls) * 30)
             print(f"  → Total URLs: {len(search_urls)} (TAS: {len(tas_urls)}, NSW: {len(nsw_urls)})")
@@ -445,10 +447,21 @@ def fetch_new_listings(gap_suburbs: set = None) -> list:
                     continue
 
                 suburb_name = address_obj.get("suburb", "").title()
+
+                # For NSW: filter to target suburbs only (postcodes can be shared across suburbs)
+                if state == "NSW" and suburb_name not in nsw_target_suburbs:
+                    skip_count += 1
+                    continue
+
                 suburb = {"name": suburb_name}
                 listing = normalise_apify(raw, suburb)
 
-                if listing["price"] and not (FILTERS["min_price"] <= listing["price"] <= FILTERS["max_price"]):
+                # Skip price-withheld listings
+                if not listing["price"]:
+                    skip_count += 1
+                    continue
+
+                if not (FILTERS["min_price"] <= listing["price"] <= FILTERS["max_price"]):
                     skip_count += 1
                     continue
 
