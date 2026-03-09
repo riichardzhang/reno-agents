@@ -45,11 +45,14 @@ def normalise_row(row) -> dict:
     settlement = row.get("Settlement date")
     listed_date = str(settlement)[:10] if pd.notna(settlement) else None
 
+    pc = int(row["Property post code"]) if pd.notna(row.get("Property post code")) else None
+
     return {
         "domain_id":     make_domain_id(row),
         "address":       address,
         "suburb":        locality,
         "state":         "NSW",
+        "postcode":      pc,
         "price":         int(row["Purchase price"]),
         "bedrooms":      None,
         "bathrooms":     None,

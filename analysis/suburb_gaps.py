@@ -9,17 +9,16 @@ from db.client import supabase
 # ─────────────────────────────────────────
 # FETCH SOLD LISTINGS FOR SUBURB
 # ─────────────────────────────────────────
-def get_sold_listings(suburb: str, state: str = "TAS") -> list:
-    """Fetch sold house listings for a suburb (excludes units)."""
-    result = supabase.table("listings") \
+def get_sold_listings(suburb: str, state: str = "TAS", property_type: str = "house") -> list:
+    """Fetch sold listings for a suburb filtered by property_type."""
+    query = supabase.table("listings") \
         .select("*") \
         .eq("suburb", suburb) \
         .eq("state", state) \
         .eq("status", "sold") \
         .gt("price", 0) \
-        .neq("property_type", "unit") \
-        .execute()
-    return result.data or []
+        .eq("property_type", property_type)
+    return query.execute().data or []
 
 
 # ─────────────────────────────────────────
@@ -429,13 +428,13 @@ def safe_median(prices: list):
 # ─────────────────────────────────────────
 # CALCULATE SUBURB GAP
 # ─────────────────────────────────────────
-def calculate_suburb_gap(suburb: str, state: str = "TAS") -> dict:
+def calculate_suburb_gap(suburb: str, state: str = "TAS", property_type: str = "house") -> dict:
     """
     Calculate the renovated vs unrenovated price gap for a suburb.
     Stores result in suburb_gaps table.
     Returns gap data dict.
     """
-    listings = get_sold_listings(suburb, state)
+    listings = get_sold_listings(suburb, state, property_type)
 
     if not listings:
         print(f"  ✗ No sold listings for {suburb}")
@@ -468,7 +467,7 @@ def calculate_suburb_gap(suburb: str, state: str = "TAS") -> dict:
 
         if overall_median:
             # Store with low confidence
-            upsert_suburb_gap(suburb, state, {
+            upsert_suburb_gap(suburb, state, property_type, {
                 "unrenovated_median":   int(overall_median * 0.85),
                 "renovated_median":     int(overall_median * 1.15),
                 "gap_dollar":           int(overall_median * 0.30),
@@ -494,22 +493,22 @@ def calculate_suburb_gap(suburb: str, state: str = "TAS") -> dict:
         "sample_size":          len(listings),
     }
 
-    upsert_suburb_gap(suburb, state, result)
+    upsert_suburb_gap(suburb, state, property_type, result)
     return result
 
 
 # ─────────────────────────────────────────
 # UPSERT SUBURB GAP
 # ─────────────────────────────────────────
-def upsert_suburb_gap(suburb: str, state: str, data: dict):
+def upsert_suburb_gap(suburb: str, state: str, property_type: str, data: dict):
     """Insert or update suburb gap data. Drops suburbs with negative gap."""
     try:
         if data["gap_percent"] < 0:
-            # Delete from DB if it exists — negative gap suburbs waste pipeline resources
             supabase.table("suburb_gaps") \
                 .delete() \
                 .eq("suburb", suburb) \
                 .eq("state", state) \
+                .eq("property_type", property_type) \
                 .execute()
             print(f"     ✗ Negative gap ({data['gap_percent']}%) — dropped from suburb_gaps")
             return
@@ -517,13 +516,14 @@ def upsert_suburb_gap(suburb: str, state: str, data: dict):
         supabase.table("suburb_gaps").upsert({
             "suburb":               suburb,
             "state":                state,
+            "property_type":        property_type,
             "unrenovated_median":   data["unrenovated_median"],
             "renovated_median":     data["renovated_median"],
             "gap_dollar":           data["gap_dollar"],
             "gap_percent":          data["gap_percent"],
             "sample_size":          data["sample_size"],
             "last_updated":         "now()"
-        }, on_conflict="suburb,state").execute()
+        }, on_conflict="suburb,state,property_type").execute()
         print(f"     ✓ Saved to suburb_gaps")
     except Exception as e:
         print(f"     ✗ Save error: {e}")
@@ -532,69 +532,86 @@ def upsert_suburb_gap(suburb: str, state: str, data: dict):
 # ─────────────────────────────────────────
 # RUN GAP ANALYSIS FOR ALL SUBURBS
 # ─────────────────────────────────────────
-def run_gap_analysis(min_sales: int = 5) -> dict:
+# Sydney metro postcode ranges — used to restrict unit gap analysis to relevant market
+SYDNEY_METRO_POSTCODE_RANGES = [
+    (2000, 2234),   # Inner / eastern / southern / northern Sydney
+    (2555, 2574),   # South-west (Campbelltown, Camden)
+    (2745, 2778),   # West (Penrith, Hills)
+]
+
+def _is_sydney_metro(postcode) -> bool:
+    if not postcode:
+        return False
+    return any(lo <= int(postcode) <= hi for lo, hi in SYDNEY_METRO_POSTCODE_RANGES)
+
+
+def _count_sold_by_suburb(property_type: str) -> dict:
     """
-    Run gap analysis for all suburbs with enough sold data.
-    Only processes suburbs with min_sales or more sold listings.
+    Page through listings to count sold records per (suburb, state).
+    For NSW units, only counts suburbs in Sydney metro postcode ranges.
     """
-    # Get all suburbs with sold house listings (exclude units)
-    # Fetch in pages to avoid the default 1000-row Supabase limit
-    suburb_counts = {}
+    counts = {}
     page_size = 1000
     offset = 0
     while True:
         result = supabase.table("listings") \
-            .select("suburb, state") \
+            .select("suburb, state, postcode") \
             .eq("status", "sold") \
             .gt("price", 0) \
-            .neq("property_type", "unit") \
+            .eq("property_type", property_type) \
             .range(offset, offset + page_size - 1) \
             .execute()
         rows = result.data or []
         for row in rows:
+            # For NSW units, restrict to Sydney metro postcodes only
+            if property_type == "unit" and row["state"] == "NSW":
+                if not _is_sydney_metro(row.get("postcode")):
+                    continue
             key = (row["suburb"], row["state"])
-            suburb_counts[key] = suburb_counts.get(key, 0) + 1
+            counts[key] = counts.get(key, 0) + 1
         if len(rows) < page_size:
             break
         offset += page_size
+    return counts
 
-    if not suburb_counts:
-        print("No sold listings found")
-        return {}
 
-    # Filter to suburbs with enough data
-    eligible = {k: v for k, v in suburb_counts.items() if v >= min_sales}
+def run_gap_analysis(min_sales: int = 5) -> dict:
+    """
+    Run gap analysis for all suburbs with enough sold data.
+    Runs separately for houses and units.
+    Returns dict keyed by (suburb, state, property_type).
+    """
+    all_results = {}
 
-    print(f"Found {len(suburb_counts)} suburbs with sold data")
-    print(f"Eligible suburbs ({min_sales}+ sales): {len(eligible)}")
-    print()
+    for prop_type in ("house", "unit"):
+        print(f"\n── {prop_type.upper()} GAP ANALYSIS ──")
+        suburb_counts = _count_sold_by_suburb(prop_type)
 
-    results = {}
-    for (suburb, state), count in sorted(eligible.items(), key=lambda x: -x[1]):
-        print(f"[{suburb}, {state}] ({count} sales)")
-        gap = calculate_suburb_gap(suburb, state)
-        if gap:
-            results[suburb] = gap
+        if not suburb_counts:
+            print(f"No sold {prop_type} listings found")
+            continue
+
+        eligible = {k: v for k, v in suburb_counts.items() if v >= min_sales}
+        print(f"Found {len(suburb_counts)} suburbs with {prop_type} data")
+        print(f"Eligible suburbs ({min_sales}+ sales): {len(eligible)}")
         print()
+
+        for (suburb, state), count in sorted(eligible.items(), key=lambda x: -x[1]):
+            print(f"[{suburb}, {state}] ({count} {prop_type} sales)")
+            gap = calculate_suburb_gap(suburb, state, prop_type)
+            if gap:
+                all_results[(suburb, state, prop_type)] = {**gap, "state": state, "property_type": prop_type}
+            print()
 
     print(f"{'='*55}")
     print(f"GAP ANALYSIS COMPLETE")
     print(f"{'='*55}")
-    print(f"Suburbs with gap data: {len(results)}")
+    for prop_type in ("house", "unit"):
+        subset = {k: v for k, v in all_results.items() if k[2] == prop_type}
+        print(f"{prop_type.capitalize()}s with gap data: {len(subset)}")
     print()
 
-    # Print summary table
-    if results:
-        print(f"{'Suburb':<20} {'Unreno':>10} {'Reno':>10} {'Gap $':>10} {'Gap %':>8}")
-        print(f"{'─'*20} {'─'*10} {'─'*10} {'─'*10} {'─'*8}")
-        for suburb, data in sorted(results.items(), key=lambda x: -x[1]["gap_dollar"]):
-            print(f"{suburb:<20} "
-                  f"${data['unrenovated_median']:>9,} "
-                  f"${data['renovated_median']:>9,} "
-                  f"${data['gap_dollar']:>9,} "
-                  f"{data['gap_percent']:>7.1f}%")
-
-    return results
+    return all_results
 
 
 # ─────────────────────────────────────────
