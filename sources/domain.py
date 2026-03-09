@@ -231,6 +231,7 @@ def get_nsw_active_urls(min_gap_dollar: int = 150000) -> list:
     """
     Query suburb_gaps for NSW suburbs (houses and units) with gap_dollar >= min_gap_dollar.
     Returns Domain search URLs for each suburb/property_type combination.
+    Postcodes are looked up from listings table (required by Domain URLs).
     """
     try:
         result = supabase.table("suburb_gaps") \
@@ -241,22 +242,40 @@ def get_nsw_active_urls(min_gap_dollar: int = 150000) -> list:
             .execute()
 
         urls = []
+        houses = 0
+        units  = 0
         for row in (result.data or []):
-            suburb_slug = row["suburb"].lower().replace(" ", "-")
-            prop_type = row["property_type"]
+            suburb_name = row["suburb"]
+            prop_type   = row["property_type"]
             domain_type = NSW_DOMAIN_TYPES.get(prop_type)
             if not domain_type:
                 continue
+
+            # Look up postcode from listings table
+            pc_result = supabase.table("listings") \
+                .select("postcode") \
+                .eq("suburb", suburb_name) \
+                .eq("state", "NSW") \
+                .not_.is_("postcode", "null") \
+                .limit(1) \
+                .execute()
+            postcode = pc_result.data[0]["postcode"] if pc_result.data else None
+            if not postcode:
+                continue
+
+            suburb_slug = suburb_name.lower().replace(" ", "-")
             url = (
-                f"https://www.domain.com.au/sale/{suburb_slug}-nsw/{domain_type}/"
+                f"https://www.domain.com.au/sale/{suburb_slug}-nsw-{postcode}/{domain_type}/"
                 f"?bedrooms={FILTERS['min_bedrooms']}-{FILTERS['max_bedrooms']}"
                 f"&price={FILTERS['min_price']}-{FILTERS['max_price']}"
                 f"&excludeunderoffer=1"
             )
             urls.append(url)
+            if prop_type == "house":
+                houses += 1
+            else:
+                units += 1
 
-        houses = sum(1 for r in (result.data or []) if r["property_type"] == "house")
-        units  = sum(1 for r in (result.data or []) if r["property_type"] == "unit")
         print(f"  → {len(urls)} NSW suburb/type combos with gap >= ${min_gap_dollar:,} ({houses} house, {units} unit)")
         return urls
     except Exception as e:
