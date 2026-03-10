@@ -373,6 +373,12 @@ def run():
 
     for i, listing in enumerate(existing_listings, 1):
         already_alerted = listing.get("alerted", False)
+        verdict = listing.get("verdict")
+
+        # PASS listings: skip entirely — numbers won't change unless price changes
+        if verdict == "PASS":
+            print(f"[E{i}/{len(existing_listings)}]  ── {listing.get('address')} — skipping (cached PASS)")
+            continue
 
         # Alerted listings: only re-run insights on Mondays to avoid daily Sonnet spend
         if already_alerted and not is_monday:
