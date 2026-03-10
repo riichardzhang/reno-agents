@@ -322,14 +322,14 @@ def fetch_all_via_apify() -> list:
     print(f"  → Run started: {run_id}")
 
     # Poll until complete
-    for attempt in range(120):
+    for attempt in range(800):
         time.sleep(15 if attempt == 0 else 5)
         status_response = requests.get(
             f"https://api.apify.com/v2/actor-runs/{run_id}",
             params={"token": APIFY_API_TOKEN}
         )
         status = status_response.json().get("data", {}).get("status")
-        print(f"    Status: {status} ({attempt+1}/120)")
+        print(f"    Status: {status} ({attempt+1}/800)")
         if status == "SUCCEEDED":
             break
         elif status in ["FAILED", "ABORTED", "TIMED-OUT"]:
@@ -361,14 +361,14 @@ def _apify_run(search_urls: list, max_items: int = 100) -> list:
     dataset_id = run_data.get("data", {}).get("defaultDatasetId")
     print(f"  → Run started: {run_id}")
 
-    for attempt in range(120):
+    for attempt in range(800):
         time.sleep(15 if attempt == 0 else 5)
         status_response = requests.get(
             f"https://api.apify.com/v2/actor-runs/{run_id}",
             params={"token": APIFY_API_TOKEN}
         )
         status = status_response.json().get("data", {}).get("status")
-        print(f"    Status: {status} ({attempt+1}/120)")
+        print(f"    Status: {status} ({attempt+1}/800)")
         if status == "SUCCEEDED":
             break
         elif status in ["FAILED", "ABORTED", "TIMED-OUT"]:

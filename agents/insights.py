@@ -11,6 +11,7 @@ from typing import Optional, Tuple
 from anthropic import Anthropic
 from db.client import get_client
 from analysis.suburb_gaps import get_suburb_dom_stats
+from config import MODELS
 
 client = Anthropic()
 
@@ -290,7 +291,7 @@ def analyse_listing(
     prompt = build_prompt(listing, suburb_gap, feasibility, property_style)
 
     response = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model=MODELS["analysis"],
         max_tokens=1500,
         messages=[{"role": "user", "content": prompt}],
     )
@@ -311,7 +312,7 @@ def analyse_listing(
         "suburb":               suburb,
         "asking_price":         asking_price,
         "preflight_feasibility": feasibility,
-        "model":                "claude-sonnet-4-20250514",
+        "model":                MODELS["analysis"],
     }
 
     return analysis
