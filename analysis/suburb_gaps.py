@@ -486,14 +486,14 @@ def calculate_suburb_gap(suburb: str, state: str = "TAS", property_type: str = "
 def upsert_suburb_gap(suburb: str, state: str, property_type: str, data: dict):
     """Insert or update suburb gap data. Drops suburbs with negative gap."""
     try:
-        if data["gap_percent"] < 0:
+        if data["gap_percent"] < 20:
             supabase.table("suburb_gaps") \
                 .delete() \
                 .eq("suburb", suburb) \
                 .eq("state", state) \
                 .eq("property_type", property_type) \
                 .execute()
-            print(f"     ✗ Negative gap ({data['gap_percent']}%) — dropped from suburb_gaps")
+            print(f"     ✗ Gap {data['gap_percent']}% < 20% threshold — dropped from suburb_gaps")
             return
 
         supabase.table("suburb_gaps").upsert({
