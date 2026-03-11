@@ -477,6 +477,8 @@ def calculate_suburb_gap(suburb: str, state: str = "TAS", property_type: str = "
     }
 
     upsert_suburb_gap(suburb, state, property_type, result)
+    if result.get("_dropped"):
+        return None
     return result
 
 
@@ -494,6 +496,7 @@ def upsert_suburb_gap(suburb: str, state: str, property_type: str, data: dict):
                 .eq("property_type", property_type) \
                 .execute()
             print(f"     ✗ Gap {data['gap_percent']}% < 20% threshold — dropped from suburb_gaps")
+            data["_dropped"] = True
             return
 
         supabase.table("suburb_gaps").upsert({
