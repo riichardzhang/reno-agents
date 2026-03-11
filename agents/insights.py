@@ -65,20 +65,39 @@ def get_suburb_gap(suburb: str, gap_data: Optional[dict] = None) -> Optional[dic
 # ---------------------------------------------------------------------------
 # Feasibility pre-calc (passed to Claude as grounding data)
 # ---------------------------------------------------------------------------
+def calculate_stamp_duty(price: float, state: str) -> float:
+    """
+    Calculate stamp duty for a given purchase price and state.
+    VIC: tiered transfer duty (1.4% / 2.4% / 6% / 5.5% flat above $960k)
+    TAS/NSW/other: flat 4% approximation
+    """
+    if state == "VIC":
+        if price <= 25_000:
+            return price * 0.014
+        elif price <= 130_000:
+            return 350 + (price - 25_000) * 0.024
+        elif price <= 960_000:
+            return 2_870 + (price - 130_000) * 0.06
+        else:
+            return price * 0.055
+    return price * 0.04
+
+
 def preflight_feasibility(
     asking_price: float,
     arv_estimate: float,
     reno_cost: int,
+    state: str = "TAS",
 ) -> dict:
     """
     Calculate costs and margins so Claude has concrete numbers to work with.
-    Buying costs: stamp duty ~4% + conveyancing $2k
+    Buying costs: stamp duty (state-specific) + conveyancing $2k
     Holding costs: 5 months at ~0.5%/month of purchase price
     Selling costs: $3k flat fee
     Profit margin: profit / (purchase price + all costs)
     Display capital: cash equity only (20% deposit + all cash costs)
     """
-    stamp_duty = asking_price * 0.04
+    stamp_duty = calculate_stamp_duty(asking_price, state)
     conveyancing = 2_000
     buying_costs = stamp_duty + conveyancing
 
@@ -265,6 +284,7 @@ def analyse_listing(
         Dict with full Claude analysis + raw feasibility pre-calc
     """
     suburb = listing.get("suburb", "")
+    state = listing.get("state", "TAS").upper()
     asking_price = float(listing.get("price", 0))
     avg_reno_score = float(listing.get("avg_reno_score", 2.5))
 
@@ -284,7 +304,7 @@ def analyse_listing(
     reno_cost, reno_tier = estimate_reno_cost(avg_reno_score)
 
     # 4. Pre-calc feasibility
-    feasibility = preflight_feasibility(asking_price, arv, reno_cost)
+    feasibility = preflight_feasibility(asking_price, arv, reno_cost, state=state)
     feasibility["reno_tier"] = reno_tier
 
     # 5. Build prompt and call Claude Sonnet

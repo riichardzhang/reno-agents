@@ -219,6 +219,9 @@ def normalise_domain_api(raw: dict, suburb: dict) -> dict:
         "_photo_urls":   [m.get("url") for m in listing.get("media", []) if m.get("category") == "Image"]
     }
 
+VIC_PRICE_MIN = 300000
+VIC_PRICE_MAX = 900000
+
 # ─────────────────────────────────────────
 # NSW SUBURB URLS (top-gap suburbs only)
 # ─────────────────────────────────────────
@@ -285,6 +288,55 @@ def get_nsw_active_urls(min_gap_dollar: int = 150000) -> tuple:
     except Exception as e:
         print(f"  ✗ Error fetching NSW suburb gaps: {e}")
         return [], {}
+
+
+# ─────────────────────────────────────────
+# VIC SUBURB URLS (top-gap suburbs only)
+# ─────────────────────────────────────────
+def get_vic_active_urls(min_gap_dollar: int = 150_000) -> list:
+    """
+    Query suburb_gaps for VIC house suburbs with gap_dollar >= min_gap_dollar.
+    Returns list of Domain sale search URLs using the wider VIC price range ($300k-$900k).
+    Postcodes are looked up from the listings table.
+    """
+    try:
+        result = supabase.table("suburb_gaps") \
+            .select("suburb") \
+            .eq("state", "VIC") \
+            .eq("property_type", "house") \
+            .gte("gap_dollar", min_gap_dollar) \
+            .order("gap_dollar", desc=True) \
+            .execute()
+
+        urls = []
+        for row in (result.data or []):
+            suburb_name = row["suburb"]
+
+            pc_result = supabase.table("listings") \
+                .select("postcode") \
+                .eq("suburb", suburb_name) \
+                .eq("state", "VIC") \
+                .not_.is_("postcode", "null") \
+                .limit(1) \
+                .execute()
+            postcode = pc_result.data[0]["postcode"] if pc_result.data else None
+            if not postcode:
+                continue
+
+            suburb_slug = suburb_name.lower().replace(" ", "-")
+            url = (
+                f"https://www.domain.com.au/sale/{suburb_slug}-vic-{postcode}/house/"
+                f"?bedrooms={FILTERS['min_bedrooms']}-{FILTERS['max_bedrooms']}"
+                f"&price={VIC_PRICE_MIN}-{VIC_PRICE_MAX}"
+                f"&excludeunderoffer=1"
+            )
+            urls.append(url)
+
+        print(f"  → {len(urls)} VIC suburbs with gap >= ${min_gap_dollar:,}")
+        return urls
+    except Exception as e:
+        print(f"  ✗ Error fetching VIC suburb gaps: {e}")
+        return []
 
 
 # ─────────────────────────────────────────
@@ -440,9 +492,10 @@ def fetch_new_listings(gap_suburbs: set = None) -> list:
                 print(f"  → Apify: scraping 3 TAS regional URLs")
 
             nsw_urls, nsw_suburb_type_map = get_nsw_active_urls(min_gap_dollar=150000)
-            search_urls = tas_urls + nsw_urls
+            vic_urls = get_vic_active_urls(min_gap_dollar=150_000)
+            search_urls = tas_urls + nsw_urls + vic_urls
             max_items = max(500, len(search_urls) * 30)
-            print(f"  → Total URLs: {len(search_urls)} (TAS: {len(tas_urls)}, NSW: {len(nsw_urls)})")
+            print(f"  → Total URLs: {len(search_urls)} (TAS: {len(tas_urls)}, NSW: {len(nsw_urls)}, VIC: {len(vic_urls)})")
 
             raw_listings = _apify_run(search_urls, max_items=max_items)
             print(f"\n  → Got {len(raw_listings)} raw results")
@@ -452,7 +505,7 @@ def fetch_new_listings(gap_suburbs: set = None) -> list:
             for raw in raw_listings:
                 address_obj = raw.get("address", {})
                 state = address_obj.get("state", "").upper()
-                if state not in ("TAS", "NSW"):
+                if state not in ("TAS", "NSW", "VIC"):
                     skip_count += 1
                     continue
 
@@ -466,9 +519,15 @@ def fetch_new_listings(gap_suburbs: set = None) -> list:
                     skip_count += 1
                     continue
 
-                if not (FILTERS["min_price"] <= listing["price"] <= FILTERS["max_price"]):
-                    skip_count += 1
-                    continue
+                # VIC has wider price range ($300k-$900k); TAS/NSW use standard filter
+                if state == "VIC":
+                    if not (VIC_PRICE_MIN <= listing["price"] <= VIC_PRICE_MAX):
+                        skip_count += 1
+                        continue
+                else:
+                    if not (FILTERS["min_price"] <= listing["price"] <= FILTERS["max_price"]):
+                        skip_count += 1
+                        continue
 
                 if listing_exists(listing["domain_id"]):
                     skip_count += 1

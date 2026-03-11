@@ -11,6 +11,54 @@ from db.client import supabase
 NSW_PRICE_MIN = 300000
 NSW_PRICE_MAX = 800000
 
+VIC_PRICE_MIN = 300000
+VIC_PRICE_MAX = 900000
+
+# ─────────────────────────────────────────
+# VIC SUBURBS (Bendigo + Ballarat)
+# ─────────────────────────────────────────
+VIC_SUBURBS = [
+    # Bendigo core (3550)
+    {"name": "bendigo",          "postcode": 3550, "region": "bendigo"},
+    {"name": "strathdale",       "postcode": 3550, "region": "bendigo"},
+    {"name": "kennington",       "postcode": 3550, "region": "bendigo"},
+    {"name": "flora-hill",       "postcode": 3550, "region": "bendigo"},
+    {"name": "quarry-hill",      "postcode": 3550, "region": "bendigo"},
+    {"name": "white-hills",      "postcode": 3550, "region": "bendigo"},
+    {"name": "long-gully",       "postcode": 3550, "region": "bendigo"},
+    {"name": "spring-gully",     "postcode": 3550, "region": "bendigo"},
+    {"name": "north-bendigo",    "postcode": 3550, "region": "bendigo"},
+    {"name": "east-bendigo",     "postcode": 3550, "region": "bendigo"},
+    # Bendigo outer (3551)
+    {"name": "strathfieldsaye",  "postcode": 3551, "region": "bendigo"},
+    {"name": "epsom",            "postcode": 3551, "region": "bendigo"},
+    {"name": "maiden-gully",     "postcode": 3551, "region": "bendigo"},
+    {"name": "huntly",           "postcode": 3551, "region": "bendigo"},
+    # Bendigo south (3555)
+    {"name": "golden-square",    "postcode": 3555, "region": "bendigo"},
+    {"name": "kangaroo-flat",    "postcode": 3555, "region": "bendigo"},
+    # Bendigo north (3556)
+    {"name": "california-gully", "postcode": 3556, "region": "bendigo"},
+    {"name": "eaglehawk",        "postcode": 3556, "region": "bendigo"},
+    # Ballarat core (3350)
+    {"name": "ballarat",         "postcode": 3350, "region": "ballarat"},
+    {"name": "ballarat-east",    "postcode": 3350, "region": "ballarat"},
+    {"name": "alfredton",        "postcode": 3350, "region": "ballarat"},
+    {"name": "lake-gardens",     "postcode": 3350, "region": "ballarat"},
+    {"name": "mount-pleasant",   "postcode": 3350, "region": "ballarat"},
+    {"name": "newington",        "postcode": 3350, "region": "ballarat"},
+    {"name": "soldiers-hill",    "postcode": 3350, "region": "ballarat"},
+    {"name": "mount-clear",      "postcode": 3350, "region": "ballarat"},
+    # Ballarat west (3355)
+    {"name": "wendouree",        "postcode": 3355, "region": "ballarat"},
+    # Ballarat south (3356)
+    {"name": "sebastopol",       "postcode": 3356, "region": "ballarat"},
+    {"name": "canadian",         "postcode": 3356, "region": "ballarat"},
+    {"name": "delacombe",        "postcode": 3356, "region": "ballarat"},
+    # Ballarat outer (3357)
+    {"name": "buninyong",        "postcode": 3357, "region": "ballarat"},
+]
+
 # ─────────────────────────────────────────
 # KEY SUBURBS TO BACKFILL
 # Priority suburbs only — enough for reliable medians
@@ -496,6 +544,76 @@ def run_nsw_backfill(batch_size: int = 1, limit: int = None):
     print(f"Total skipped:  {total_skipped}")
 
 
+# ─────────────────────────────────────────
+# VIC BACKFILL
+# ─────────────────────────────────────────
+def build_vic_sold_url(suburb: dict) -> str:
+    """Build a Domain sold listings URL for a VIC suburb."""
+    slug = suburb["name"].lower().replace(" ", "-")
+    postcode = suburb["postcode"]
+    return (
+        f"https://www.domain.com.au/sold-listings/{slug}-vic-{postcode}/house/"
+        f"?bedrooms=3-5&price={VIC_PRICE_MIN}-{VIC_PRICE_MAX}&excludepricewithheld=1"
+    )
+
+
+def run_vic_backfill(batch_size: int = 1, test_only: bool = False):
+    """
+    Backfill sold listings for VIC suburbs (Bendigo + Ballarat).
+    Fetches 100 sold listings per suburb via Apify.
+    """
+    suburbs = VIC_SUBURBS[:1] if test_only else VIC_SUBURBS
+    label = "VIC test (1 suburb)" if test_only else f"VIC ({len(suburbs)} suburbs)"
+    print(f"Starting {label} backfill...\n")
+
+    total_inserted = 0
+    total_skipped  = 0
+
+    batches = [suburbs[i:i+batch_size] for i in range(0, len(suburbs), batch_size)]
+
+    for batch_num, batch in enumerate(batches, 1):
+        print(f"[Batch {batch_num}/{len(batches)}] {', '.join(s['name'] for s in batch)}")
+
+        urls = [build_vic_sold_url(s) for s in batch]
+        for url in urls:
+            print(f"  → {url}")
+
+        raw_results = fetch_sold_via_apify(urls, max_items=batch_size * 50)
+        print(f"  → Got {len(raw_results)} raw results")
+
+        batch_inserted = 0
+        for raw in raw_results:
+            address_obj = raw.get("address", {})
+            if address_obj.get("state", "").upper() != "VIC":
+                continue
+
+            suburb_name = address_obj.get("suburb", "").title()
+            listing = normalise_sold(raw, {"name": suburb_name})
+            listing["state"] = "VIC"
+
+            if not listing["domain_id"] or not listing["price"]:
+                continue
+            if not (VIC_PRICE_MIN <= listing["price"] <= VIC_PRICE_MAX):
+                continue
+
+            photo_urls = listing.pop("_photo_urls", [])
+
+            if insert_sold_listing(listing, photo_urls):
+                batch_inserted += 1
+            else:
+                total_skipped += 1
+
+        total_inserted += batch_inserted
+        print(f"  ✓ Inserted {batch_inserted} VIC sold listings\n")
+        time.sleep(2)
+
+    print(f"{'='*50}")
+    print(f"VIC BACKFILL COMPLETE")
+    print(f"{'='*50}")
+    print(f"Total inserted: {total_inserted}")
+    print(f"Total skipped:  {total_skipped}")
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
@@ -505,6 +623,8 @@ if __name__ == "__main__":
     parser.add_argument("--nsw",       action="store_true", help="Run NSW suburb backfill")
     parser.add_argument("--nsw-test",  action="store_true", help="Test single NSW suburb before full run")
     parser.add_argument("--nsw-limit", type=int, default=None, help="Limit NSW backfill to top N suburbs by gap % (e.g. --nsw-limit 15)")
+    parser.add_argument("--vic",       action="store_true", help="Run VIC Bendigo+Ballarat suburb backfill")
+    parser.add_argument("--vic-test",  action="store_true", help="Test single VIC suburb before full run")
     args = parser.parse_args()
 
     if args.test:
@@ -534,6 +654,10 @@ if __name__ == "__main__":
                     if k != "_photo_urls":
                         print(f"  {k}: {v}")
                 print(f"  photos: {len(results[0].get('images', []))} available")
+    elif args.vic:
+        run_vic_backfill()
+    elif args.vic_test:
+        run_vic_backfill(test_only=True)
     else:
         print("Usage:")
         print("  python3 jobs/backfill.py --test      # test single TAS suburb")
@@ -542,3 +666,5 @@ if __name__ == "__main__":
         print("  python3 jobs/backfill.py --nsw-test         # test single NSW suburb before full run")
         print("  python3 jobs/backfill.py --nsw               # NSW backfill (all gap suburbs)")
         print("  python3 jobs/backfill.py --nsw --nsw-limit 15  # NSW backfill (top 15 by gap %)")
+        print("  python3 jobs/backfill.py --vic-test  # test single VIC suburb (Bendigo/Ballarat)")
+        print("  python3 jobs/backfill.py --vic        # VIC Bendigo+Ballarat backfill (33 suburbs)")
