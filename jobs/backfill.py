@@ -8,6 +8,9 @@ import time
 from config import APIFY_API_TOKEN, SOURCES
 from db.client import supabase
 
+TAS_PRICE_MIN = 300000
+TAS_PRICE_MAX = 1000000
+
 NSW_PRICE_MIN = 300000
 NSW_PRICE_MAX = 800000
 
@@ -110,7 +113,7 @@ def build_sold_url(suburb: dict) -> str:
     name = suburb["name"].lower()
     return (
         f"https://www.domain.com.au/sold-listings/{name}-tas/house/"
-        f"?bedrooms=3-5&price=300000-750000&excludepricewithheld=1"
+        f"?bedrooms=3-5&price={TAS_PRICE_MIN}-{TAS_PRICE_MAX}&excludepricewithheld=1"
     )
 # ─────────────────────────────────────────
 # NORMALISE SOLD LISTING
@@ -357,7 +360,7 @@ def run_backfill_regions():
 
     urls = [
         f"https://www.domain.com.au/sold-listings/{r['name']}-tas/house/"
-        f"?bedrooms=3-5&price=300000-750000&excludepricewithheld=1"
+        f"?bedrooms=3-5&price={TAS_PRICE_MIN}-{TAS_PRICE_MAX}&excludepricewithheld=1"
         for r in regions
     ]
 

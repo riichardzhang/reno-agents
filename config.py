@@ -161,7 +161,7 @@ ALL_SUBURBS = [
 # ─────────────────────────────────────────
 FILTERS = {
     "min_price":        300000,
-    "max_price":        650000,
+    "max_price":        1000000,
     "min_bedrooms":     3,
     "max_bedrooms":     5,
     "property_types":   ["house"],
