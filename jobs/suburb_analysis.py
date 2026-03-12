@@ -118,6 +118,7 @@ if __name__ == "__main__":
     parser.add_argument("--skip-backfill", action="store_true", help="Skip Apify pull, re-run on existing data")
     parser.add_argument("--skip-vision",   action="store_true", help="Skip Claude vision scoring of sold listing photos")
     parser.add_argument("--gap-only",      action="store_true", help="Run gap analysis only (no backfill, no vision, no email)")
+    parser.add_argument("--state",         type=str, default=None, help="Limit vision scoring to a single state (e.g. --state VIC)")
     args = parser.parse_args()
 
     if args.dry_run:
@@ -127,11 +128,13 @@ if __name__ == "__main__":
         SKIP_VISION = True
         if args.skip_vision:
             print("⚠ SKIP VISION — using cached/price-heuristic classification only")
+    if args.state:
+        print(f"⚠ STATE FILTER — vision scoring limited to {args.state}")
 
     if args.gap_only:
         run_gap_analysis(min_sales=5)
     elif args.skip_backfill:
-        score_unclassified_sold_listings(dry_run=SKIP_VISION)
+        score_unclassified_sold_listings(dry_run=SKIP_VISION, state=args.state)
         results = run_gap_analysis(min_sales=5)
         if results and not DRY_RUN:
             send_suburb_gap_email(results)

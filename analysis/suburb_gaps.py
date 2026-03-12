@@ -107,13 +107,16 @@ def _classify_by_ppm2(listings: list) -> dict:
 # ─────────────────────────────────────────
 # VISION SCORING FOR SOLD LISTINGS
 # ─────────────────────────────────────────
-def score_unclassified_sold_listings(dry_run: bool = False):
+def score_unclassified_sold_listings(dry_run: bool = False, state: str = None):
     """
     Download and score photos for sold listings that don't yet have
     a vision-based classification. Updates classification in DB.
 
     Only processes listings that have photo URLs stored in the photos
     table (from the backfill job). Skips already-classified listings.
+
+    Args:
+        state: If provided, only score listings from this state (e.g. "VIC").
     """
     import requests as req
     import base64
@@ -122,7 +125,8 @@ def score_unclassified_sold_listings(dry_run: bool = False):
 
     TARGET_ROOMS = {"kitchen", "bathroom"}
 
-    print("  Fetching unclassified sold listings with photos...")
+    state_label = f" ({state} only)" if state else ""
+    print(f"  Fetching unclassified sold listings with photos{state_label}...")
 
     # Find sold listings with pending photos (room_type IS NULL) and no classification
     try:
@@ -139,15 +143,16 @@ def score_unclassified_sold_listings(dry_run: bool = False):
         print(f"  ✗ Failed to fetch pending photos: {e}")
         return
 
-    # Filter to only unclassified sold listings
+    # Filter to only unclassified sold listings, optionally by state
     try:
-        result = supabase.table("listings") \
+        query = supabase.table("listings") \
             .select("id, address, suburb") \
             .in_("id", listing_ids_with_photos) \
             .eq("status", "sold") \
-            .is_("classification", "null") \
-            .execute()
-        to_score = result.data or []
+            .is_("classification", "null")
+        if state:
+            query = query.eq("state", state)
+        to_score = query.execute().data or []
     except Exception as e:
         print(f"  ✗ Failed to fetch unclassified listings: {e}")
         return
