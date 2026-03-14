@@ -180,6 +180,7 @@ def normalise_apify(raw: dict, suburb: dict) -> dict:
         "address":       full_address,
         "suburb":        address_obj.get("suburb", suburb["name"]).title(),
         "state":         address_obj.get("state", "TAS"),
+        "postcode":      address_obj.get("postcode", None),
         "price":         price,
         "bedrooms":      features.get("beds", None),
         "bathrooms":     features.get("baths", None),
@@ -221,6 +222,14 @@ def normalise_domain_api(raw: dict, suburb: dict) -> dict:
 
 VIC_PRICE_MIN = 300000
 VIC_PRICE_MAX = 900000
+
+# Fallback postcodes for known VIC suburbs (used when listings table has no postcode yet)
+VIC_SUBURB_POSTCODES = {
+    "Bendigo":      "3550",
+    "Quarry Hill":  "3550",
+    "Wendouree":    "3355",
+    "Ballarat":     "3350",
+}
 
 # ─────────────────────────────────────────
 # NSW SUBURB URLS (top-gap suburbs only)
@@ -321,6 +330,9 @@ def get_vic_active_urls(min_gap_dollar: int = 150_000) -> list:
                 .execute()
             postcode = pc_result.data[0]["postcode"] if pc_result.data else None
             if not postcode:
+                postcode = VIC_SUBURB_POSTCODES.get(suburb_name)
+            if not postcode:
+                print(f"  ✗ No postcode found for VIC suburb: {suburb_name} — skipping")
                 continue
 
             suburb_slug = suburb_name.lower().replace(" ", "-")
