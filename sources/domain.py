@@ -343,9 +343,9 @@ def get_vic_active_urls(min_gap_dollar: int = 150_000) -> list:
 # REGIONAL URLS FOR ACTIVE LISTINGS
 # ─────────────────────────────────────────
 ACTIVE_REGION_URLS = [
-    f"https://www.domain.com.au/sale/hobart-and-southern-region-tas/house/?bedrooms={FILTERS['min_bedrooms']}-{FILTERS['max_bedrooms']}&price={FILTERS['min_price']}-{FILTERS['max_price']}&excludeunderoffer=1",
-    f"https://www.domain.com.au/sale/launceston-and-northern-region-tas/house/?bedrooms={FILTERS['min_bedrooms']}-{FILTERS['max_bedrooms']}&price={FILTERS['min_price']}-{FILTERS['max_price']}&excludeunderoffer=1",
-    f"https://www.domain.com.au/sale/devonport-and-central-coast-region-tas/house/?bedrooms={FILTERS['min_bedrooms']}-{FILTERS['max_bedrooms']}&price={FILTERS['min_price']}-{FILTERS['max_price']}&excludeunderoffer=1",
+    f"https://www.domain.com.au/sale/hobart-and-southern-region-tas/house/?bedrooms={FILTERS['min_bedrooms']}-{FILTERS['max_bedrooms']}&price={FILTERS['min_price']}-{FILTERS['max_price']}&excludeunderoffer=1&sort=dateListed-desc",
+    f"https://www.domain.com.au/sale/launceston-and-northern-region-tas/house/?bedrooms={FILTERS['min_bedrooms']}-{FILTERS['max_bedrooms']}&price={FILTERS['min_price']}-{FILTERS['max_price']}&excludeunderoffer=1&sort=dateListed-desc",
+    f"https://www.domain.com.au/sale/devonport-and-central-coast-region-tas/house/?bedrooms={FILTERS['min_bedrooms']}-{FILTERS['max_bedrooms']}&price={FILTERS['min_price']}-{FILTERS['max_price']}&excludeunderoffer=1&sort=dateListed-desc",
 ]
 
 def fetch_all_via_apify() -> list:
@@ -494,7 +494,7 @@ def fetch_new_listings(gap_suburbs: set = None) -> list:
             nsw_urls, nsw_suburb_type_map = get_nsw_active_urls(min_gap_dollar=150000)
             vic_urls = get_vic_active_urls(min_gap_dollar=150_000)
             search_urls = tas_urls + nsw_urls + vic_urls
-            max_items = max(500, len(search_urls) * 30)
+            max_items = 200
             print(f"  → Total URLs: {len(search_urls)} (TAS: {len(tas_urls)}, NSW: {len(nsw_urls)}, VIC: {len(vic_urls)})")
 
             raw_listings = _apify_run(search_urls, max_items=max_items)
