@@ -225,10 +225,27 @@ VIC_PRICE_MAX = 900000
 
 # Fallback postcodes for known VIC suburbs (used when listings table has no postcode yet)
 VIC_SUBURB_POSTCODES = {
-    "Bendigo":      "3550",
-    "Quarry Hill":  "3550",
-    "Wendouree":    "3355",
-    "Ballarat":     "3350",
+    "Bendigo":          "3550",
+    "Quarry Hill":      "3550",
+    "Ironbark":         "3550",
+    "Strathfieldsaye":  "3551",
+    "Epsom":            "3551",
+    "Maiden Gully":     "3551",
+    "Huntly":           "3551",
+    "Junortoun":        "3551",
+    "Ascot":            "3551",
+    "Mandurang":        "3551",
+    "Mandurang South":  "3551",
+    "Golden Square":    "3555",
+    "Kangaroo Flat":    "3555",
+    "California Gully": "3556",
+    "Eaglehawk":        "3556",
+    "Jackass Flat":     "3556",
+    "Sailors Gully":    "3556",
+    "Eaglehawk North":  "3556",
+    "Myers Flat":       "3556",
+    "Wendouree":        "3355",
+    "Ballarat":         "3350",
 }
 
 # ─────────────────────────────────────────

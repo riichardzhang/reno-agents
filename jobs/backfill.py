@@ -32,17 +32,26 @@ VIC_SUBURBS = [
     {"name": "spring-gully",     "postcode": 3550, "region": "bendigo"},
     {"name": "north-bendigo",    "postcode": 3550, "region": "bendigo"},
     {"name": "east-bendigo",     "postcode": 3550, "region": "bendigo"},
+    {"name": "ironbark",         "postcode": 3550, "region": "bendigo"},
     # Bendigo outer (3551)
     {"name": "strathfieldsaye",  "postcode": 3551, "region": "bendigo"},
     {"name": "epsom",            "postcode": 3551, "region": "bendigo"},
     {"name": "maiden-gully",     "postcode": 3551, "region": "bendigo"},
     {"name": "huntly",           "postcode": 3551, "region": "bendigo"},
+    {"name": "junortoun",        "postcode": 3551, "region": "bendigo"},
+    {"name": "ascot",            "postcode": 3551, "region": "bendigo"},
+    {"name": "mandurang",        "postcode": 3551, "region": "bendigo"},
+    {"name": "mandurang-south",  "postcode": 3551, "region": "bendigo"},
     # Bendigo south (3555)
     {"name": "golden-square",    "postcode": 3555, "region": "bendigo"},
     {"name": "kangaroo-flat",    "postcode": 3555, "region": "bendigo"},
     # Bendigo north (3556)
     {"name": "california-gully", "postcode": 3556, "region": "bendigo"},
     {"name": "eaglehawk",        "postcode": 3556, "region": "bendigo"},
+    {"name": "jackass-flat",     "postcode": 3556, "region": "bendigo"},
+    {"name": "sailors-gully",    "postcode": 3556, "region": "bendigo"},
+    {"name": "eaglehawk-north",  "postcode": 3556, "region": "bendigo"},
+    {"name": "myers-flat",       "postcode": 3556, "region": "bendigo"},
     # Ballarat core (3350)
     {"name": "ballarat",         "postcode": 3350, "region": "ballarat"},
     {"name": "ballarat-east",    "postcode": 3350, "region": "ballarat"},
