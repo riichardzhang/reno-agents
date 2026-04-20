@@ -1,6 +1,6 @@
 # reno-agents
 
-Autonomous AI pipeline for identifying undervalued renovation properties across Tasmania. Runs daily on Railway and sends email alerts for viable deals.
+Autonomous AI pipeline for identifying undervalued renovation properties across Australia. Runs daily on Railway and sends email alerts for viable deals.
 
 ## How it works
 
@@ -98,7 +98,7 @@ Reno cost is estimated from the average vision score:
 
 ## Target markets
 
-Currently configured for Tasmania: Greater Hobart, Greater Launceston, Devonport, and Ulverstone. NSW and QLD support planned.
+Evaluates deals across Australia. Currently configured for Tasmania (Greater Hobart, Greater Launceston, Devonport, Ulverstone), with NSW and QLD support planned.
 
 ## Stack
 
